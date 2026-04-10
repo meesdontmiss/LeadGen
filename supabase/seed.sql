@@ -1,0 +1,1 @@
+-- Seed data is managed by scripts/seed-supabase.ts for the remote project.

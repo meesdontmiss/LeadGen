@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Luxury Local Lead Engine
 
-## Getting Started
+Operator-first MVP for discovering premium local service businesses, auditing weak web presentation, generating tailored outreach, and managing Gmail-safe outbound flow.
 
-First, run the development server:
+## Stack
+
+- Next.js 16 App Router
+- React 19
+- Tailwind CSS 4
+- Typed local seed data for the MVP workspace
+- Supabase schema scaffold in [supabase/schema.sql](./supabase/schema.sql)
+
+## What is implemented
+
+- Lead queue with search and stage filters
+- Company detail view with audit scoring, weaknesses, and offer logic
+- Outreach review panel with subject variants, draft preview, compliance footer, and follow-up schedule
+- Campaign pipeline and activity log
+- Domain health and send guardrail surface
+- Worker status / roadmap surface
+- Live Supabase read path when runtime env is configured, with seeded fallback otherwise
+- Gmail draft creation route using Google OAuth runtime env
+- OpenClaw command endpoint with secret-based auth
+- Supabase seed script for loading the demo dataset into a real project
+- JSON API stubs:
+  - `/api/leads`
+  - `/api/campaigns`
+  - `/api/domain-health`
+  - `/api/gmail/drafts`
+  - `/api/openclaw/commands`
+
+## Local run
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Live setup
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Set runtime env in `.env.local`
+2. Run the schema against a Supabase project
+3. Seed the project
 
-## Learn More
+```bash
+npm run seed:supabase
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Required env
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_PROJECT_REF`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REDIRECT_URI`
+- `GMAIL_REFRESH_TOKEN`
+- `OPENCLAW_WEBHOOK_SECRET`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Notes
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Discovery ingestion, Playwright audits, and follow-up workers are still separate backend workstreams.
+- First-touch sends are intentionally modeled as human-approval-first.
+- The Gmail connector available to the agent is separate from the app runtime. The app uses Google OAuth env, not the connector tools.
