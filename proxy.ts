@@ -11,11 +11,20 @@ const PUBLIC_ROUTES = [
   "/",
 ];
 
+function isPublicRoute(pathname: string): boolean {
+  return PUBLIC_ROUTES.some((route) => {
+    if (route === "/") {
+      return pathname === route;
+    }
+
+    return pathname === route || pathname.startsWith(`${route}/`);
+  });
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow public routes (including root path)
-  if (PUBLIC_ROUTES.some((route) => pathname === route || pathname.startsWith(route))) {
+  if (isPublicRoute(pathname)) {
     return NextResponse.next();
   }
 

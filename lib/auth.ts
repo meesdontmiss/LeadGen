@@ -1,28 +1,55 @@
 import "server-only";
 
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
-import { env } from "@/lib/env";
 
 const SESSION_COOKIE_NAME = "lead-engine-session";
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 
-// Simple hash-based session management
-// For production, consider a proper session store or NextAuth
 function hashPassword(password: string): string {
-  // Simple SHA-256 hash for demo purposes
-  // In production, use bcrypt or argon2
-  const crypto = require("node:crypto");
-  return crypto.createHash("sha256").update(password).digest("hex");
+  return createHash("sha256").update(password).digest("hex");
 }
 
-// The operator password is stored as a hash in env
-// Must be set via OPERATOR_PASSWORD environment variable
 function getOperatorPasswordHash(): string {
   const password = process.env.OPERATOR_PASSWORD;
   if (!password) {
     throw new Error("OPERATOR_PASSWORD environment variable is not set");
   }
   return hashPassword(password);
+}
+
+function getSessionSecret(): string {
+  return process.env.OPERATOR_SESSION_SECRET || process.env.OPERATOR_PASSWORD || "";
+}
+
+function signSessionPayload(payload: string): string {
+  const secret = getSessionSecret();
+  if (!secret) {
+    throw new Error("OPERATOR_PASSWORD or OPERATOR_SESSION_SECRET must be set");
+  }
+
+  return createHmac("sha256", secret).update(payload).digest("hex");
+}
+
+function encodeSessionPayload(payload: { exp: number; nonce: string }): string {
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
+function decodeSessionPayload(payload: string): { exp: number; nonce: string } | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
+      exp?: unknown;
+      nonce?: unknown;
+    };
+
+    if (typeof parsed.exp !== "number" || typeof parsed.nonce !== "string") {
+      return null;
+    }
+
+    return { exp: parsed.exp, nonce: parsed.nonce };
+  } catch {
+    return null;
+  }
 }
 
 export async function verifyPassword(password: string): Promise<boolean> {
@@ -32,32 +59,40 @@ export async function verifyPassword(password: string): Promise<boolean> {
 }
 
 export async function createSession(): Promise<string> {
-  const crypto = require("node:crypto");
-  const sessionToken = crypto.randomBytes(32).toString("hex");
-  
-  // Store session token with expiry (in-memory for MVP)
-  // In production, use Redis or database
-  sessions.set(sessionToken, {
-    createdAt: Date.now(),
-    expiresAt: Date.now() + SESSION_MAX_AGE * 1000,
+  const payload = encodeSessionPayload({
+    exp: Date.now() + SESSION_MAX_AGE * 1000,
+    nonce: randomBytes(16).toString("hex"),
   });
+  const signature = signSessionPayload(payload);
 
-  return sessionToken;
+  return `${payload}.${signature}`;
 }
 
-// Simple in-memory session store
-// In production, replace with Redis or database-backed sessions
-const sessions = new Map<string, { createdAt: number; expiresAt: number }>();
-
 export async function validateSession(token: string): Promise<boolean> {
-  const session = sessions.get(token);
-  
+  const [payload, signature, ...rest] = token.split(".");
+
+  if (!payload || !signature || rest.length > 0) {
+    return false;
+  }
+
+  const expectedSignature = signSessionPayload(payload);
+  const providedSignature = Buffer.from(signature, "utf8");
+  const expectedSignatureBuffer = Buffer.from(expectedSignature, "utf8");
+
+  if (
+    providedSignature.length !== expectedSignatureBuffer.length ||
+    !timingSafeEqual(providedSignature, expectedSignatureBuffer)
+  ) {
+    return false;
+  }
+
+  const session = decodeSessionPayload(payload);
+
   if (!session) {
     return false;
   }
 
-  if (Date.now() > session.expiresAt) {
-    sessions.delete(token);
+  if (Date.now() > session.exp) {
     return false;
   }
 
