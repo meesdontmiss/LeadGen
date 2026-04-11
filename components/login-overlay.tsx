@@ -18,15 +18,19 @@ export function LoginOverlay() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
+        credentials: "include",
       });
 
       const data = await response.json();
+      console.log("[Login] Response status:", response.status);
+      console.log("[Login] Response data:", data);
 
       if (!response.ok) {
         setError(data.error || "Login failed");
         return;
       }
 
+      console.log("[Login] Login successful, reloading...");
       // Reload page to show authenticated state
       window.location.reload();
     } catch (err) {
@@ -96,10 +100,6 @@ export function LoginOverlay() {
             </button>
           </div>
         </form>
-
-        <p className="mt-4 text-center text-xs text-stone-500">
-          Default password: <code className="rounded bg-stone-100 px-2 py-1">openclaw-operator-2026</code>
-        </p>
       </div>
     </div>
   );

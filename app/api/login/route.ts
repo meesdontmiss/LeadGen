@@ -10,7 +10,9 @@ export async function POST(request: Request) {
   try {
     const body = loginSchema.parse(await request.json());
 
+    console.log("[API /login] Attempting login with password:", body.password);
     const isValid = await verifyPassword(body.password);
+    console.log("[API /login] Password valid:", isValid);
 
     if (!isValid) {
       return Response.json(
@@ -20,6 +22,7 @@ export async function POST(request: Request) {
     }
 
     const sessionToken = await createSession();
+    console.log("[API /login] Session created:", sessionToken.substring(0, 10) + "...");
 
     const response = NextResponse.json({
       ok: true,
@@ -34,6 +37,7 @@ export async function POST(request: Request) {
       path: "/",
     });
 
+    console.log("[API /login] Cookie set successfully");
     return response;
   } catch (error) {
     console.error("[API /login] Login failed:", error);

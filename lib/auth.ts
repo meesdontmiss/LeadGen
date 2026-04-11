@@ -16,10 +16,12 @@ function hashPassword(password: string): string {
 }
 
 // The operator password is stored as a hash in env
-// For MVP, we use a simple hardcoded password that can be set via env
+// Must be set via OPERATOR_PASSWORD environment variable
 function getOperatorPasswordHash(): string {
-  const defaultPassword = "openclaw-operator-2026";
-  const password = process.env.OPERATOR_PASSWORD || defaultPassword;
+  const password = process.env.OPERATOR_PASSWORD;
+  if (!password) {
+    throw new Error("OPERATOR_PASSWORD environment variable is not set");
+  }
   return hashPassword(password);
 }
 
