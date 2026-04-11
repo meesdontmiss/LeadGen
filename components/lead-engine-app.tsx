@@ -119,7 +119,7 @@ export function LeadEngineApp({ data }: { data: DashboardData }) {
               Data source:{" "}
               {data.integrations.dataSource === "supabase"
                 ? "Supabase live"
-                : "Seeded fallback"}
+                : "Live setup required"}
             </span>
             <span>
               Gmail:{" "}
@@ -186,9 +186,8 @@ export function LeadEngineApp({ data }: { data: DashboardData }) {
                 The live project is connected, but the lead tables are empty.
               </h2>
               <p className="mt-4 max-w-2xl text-sm leading-7">
-                Run the Supabase seed path or start writing real discovery results
-                into the database. The dashboard will populate automatically once
-                lead records exist.
+                Write real discovery results into Supabase. The dashboard will
+                populate automatically once lead records exist.
               </p>
             </section>
           )}

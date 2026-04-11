@@ -1,6 +1,5 @@
 import "server-only";
 
-import { dashboardData as mockDashboardData } from "@/lib/mock-data";
 import { calculateOutreachScore, qualifiesForOutreach } from "@/lib/scoring";
 import { env, hasRuntimeGmailEnv, hasSupabaseServerEnv } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/services/supabase-admin";
@@ -18,11 +17,84 @@ import type {
   WorkerStatus,
 } from "@/lib/types";
 
-function fallbackDashboardData(notes: string[]): DashboardData {
+const DEFAULT_DISCOVERY_PRESET: DashboardData["discoveryPreset"] = {
+  neighborhoods: [
+    "Beverly Hills",
+    "West Hollywood",
+    "Brentwood",
+    "Pacific Palisades",
+    "Newport Coast",
+  ],
+  verticals: [
+    "Med spa",
+    "Cosmetic dentistry",
+    "Interior design",
+    "Landscape design",
+    "Concierge recovery",
+  ],
+  keywords: [
+    "luxury med spa",
+    "cosmetic dentist",
+    "interior designer",
+    "landscape architect",
+    "concierge recovery",
+  ],
+  domainFilters: [".com", ".co", ".studio"],
+  minimumPremiumFit: 65,
+};
+
+function buildSummary(leads: LeadRecord[], domains: DomainHealth[]) {
   return {
-    ...mockDashboardData,
+    discoveredThisWeek: leads.filter((lead) => {
+      const discoveredAt = new Date(lead.company.discoveredAt).getTime();
+      return discoveredAt >= Date.now() - 7 * 24 * 60 * 60 * 1000;
+    }).length,
+    qualifiedThisWeek: leads.filter((lead) => lead.qualifies).length,
+    draftsReady: leads.filter(
+      (lead) =>
+        lead.latestEmail.status === "draft" ||
+        lead.company.status === "draft_ready",
+    ).length,
+    sentToday: leads.filter((lead) => {
+      const lastTouch = new Date(lead.campaign.lastTouchAt);
+      const now = new Date();
+      return (
+        lastTouch.getUTCFullYear() === now.getUTCFullYear() &&
+        lastTouch.getUTCMonth() === now.getUTCMonth() &&
+        lastTouch.getUTCDate() === now.getUTCDate() &&
+        lead.campaign.status === "sent"
+      );
+    }).length,
+    positiveReplyRate:
+      leads.length === 0
+        ? 0
+        : (leads.filter((lead) =>
+            ["interested", "booked", "won"].includes(lead.campaign.status),
+          ).length /
+            leads.length) *
+          100,
+    complaintRate:
+      domains.length === 0
+        ? 0
+        : domains.reduce((sum, item) => sum + item.complaintRate, 0) /
+          domains.length,
+    pipelineValue: leads.reduce(
+      (sum, lead) => sum + lead.campaign.pipelineValue,
+      0,
+    ),
+  };
+}
+
+function emptyDashboardData(notes: string[]): DashboardData {
+  return {
+    discoveryPreset: DEFAULT_DISCOVERY_PRESET,
+    leads: [],
+    domains: [],
+    workers: [],
+    summary: buildSummary([], []),
+    activity: [],
     integrations: {
-      dataSource: "mock",
+      dataSource: "empty",
       supabaseConfigured: hasSupabaseServerEnv(),
       supabaseProjectRef: env.SUPABASE_PROJECT_REF,
       gmailConfigured: hasRuntimeGmailEnv(),
@@ -76,11 +148,11 @@ export async function getDashboardData(): Promise<DashboardData> {
   const supabase = getSupabaseAdmin();
 
   if (!supabase) {
-    return fallbackDashboardData([
-      "Supabase runtime env is missing. Add NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to switch from seeded data to live reads.",
+    return emptyDashboardData([
+      "Supabase runtime env is missing. Add NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to enable live dashboard reads.",
       hasRuntimeGmailEnv()
         ? "Runtime Gmail OAuth env is configured."
-        : "Runtime Gmail OAuth env is missing, so draft creation is not available from the app yet.",
+        : "Runtime Gmail OAuth env is missing, so Gmail read/send actions are unavailable from the app.",
     ]);
   }
 
@@ -248,20 +320,31 @@ export async function getDashboardData(): Promise<DashboardData> {
     for (const row of emails) {
       const companyId = String(row.company_id ?? "");
       if (!companyId || latestEmails.has(companyId)) continue;
+      const metadata =
+        typeof row.metadata === "object" && row.metadata !== null
+          ? (row.metadata as {
+              complianceChecks?: EmailDraft["complianceChecks"];
+            })
+          : {};
+
       latestEmails.set(companyId, {
         id: String(row.id),
         companyId,
         contactId: String(row.contact_id ?? ""),
+        subject: String(row.subject ?? ""),
         status: toEmailStatus(String(row.status ?? "draft")),
+        direction: row.direction === "inbound" ? "inbound" : "outbound",
         subjectVariants: asArray<string>(row.subject_variants),
         plainText: String(row.body_text ?? ""),
         html: String(row.body_html ?? ""),
         complianceFooter: asArray<string>(row.compliance_footer),
-        complianceChecks: Array.isArray(
-          (row.metadata as { complianceChecks?: unknown[] } | null)?.complianceChecks,
-        )
-          ? ((row.metadata as { complianceChecks?: EmailDraft["complianceChecks"] })
-              .complianceChecks ?? [])
+        gmailThreadId: typeof row.gmail_thread_id === "string" ? row.gmail_thread_id : null,
+        gmailDraftId: typeof row.gmail_draft_id === "string" ? row.gmail_draft_id : null,
+        sentAt: typeof row.sent_at === "string" ? row.sent_at : null,
+        replyDetectedAt:
+          typeof row.reply_detected_at === "string" ? row.reply_detected_at : null,
+        complianceChecks: Array.isArray(metadata.complianceChecks)
+          ? metadata.complianceChecks
           : [],
       });
     }
@@ -363,53 +446,13 @@ export async function getDashboardData(): Promise<DashboardData> {
       detail: JSON.stringify(row.payload ?? {}),
     }));
 
-    const summary = {
-      discoveredThisWeek: leads.filter((lead) => {
-        const discoveredAt = new Date(lead.company.discoveredAt).getTime();
-        return discoveredAt >= Date.now() - 7 * 24 * 60 * 60 * 1000;
-      }).length,
-      qualifiedThisWeek: leads.filter((lead) => lead.qualifies).length,
-      draftsReady: leads.filter(
-        (lead) =>
-          lead.latestEmail.status === "draft" ||
-          lead.company.status === "draft_ready",
-      ).length,
-      sentToday: leads.filter((lead) => {
-        const lastTouch = new Date(lead.campaign.lastTouchAt);
-        const now = new Date();
-        return (
-          lastTouch.getUTCFullYear() === now.getUTCFullYear() &&
-          lastTouch.getUTCMonth() === now.getUTCMonth() &&
-          lastTouch.getUTCDate() === now.getUTCDate() &&
-          lead.campaign.status === "sent"
-        );
-      }).length,
-      positiveReplyRate:
-        leads.length === 0
-          ? 0
-          : (leads.filter((lead) =>
-              ["interested", "booked", "won"].includes(lead.campaign.status),
-            ).length /
-              leads.length) *
-            100,
-      complaintRate:
-        liveDomains.length === 0
-          ? 0
-          : liveDomains.reduce((sum, item) => sum + item.complaintRate, 0) /
-            liveDomains.length,
-      pipelineValue: leads.reduce(
-        (sum, lead) => sum + lead.campaign.pipelineValue,
-        0,
-      ),
-    };
-
     return {
-      discoveryPreset: mockDashboardData.discoveryPreset,
+      discoveryPreset: DEFAULT_DISCOVERY_PRESET,
       leads,
-      domains: liveDomains.length > 0 ? liveDomains : mockDashboardData.domains,
-      workers: liveWorkers.length > 0 ? liveWorkers : mockDashboardData.workers,
-      summary,
-      activity: liveActivity.length > 0 ? liveActivity : mockDashboardData.activity,
+      domains: liveDomains,
+      workers: liveWorkers,
+      summary: buildSummary(leads, liveDomains),
+      activity: liveActivity,
       integrations: {
         dataSource: "supabase",
         supabaseConfigured: true,
@@ -419,8 +462,8 @@ export async function getDashboardData(): Promise<DashboardData> {
         notes: [
           "Dashboard is reading lead records from Supabase.",
           hasRuntimeGmailEnv()
-            ? "Runtime Gmail OAuth env is configured for draft creation."
-            : "Runtime Gmail OAuth env is not configured, so the app cannot create Gmail drafts yet.",
+            ? "Runtime Gmail OAuth env is configured for thread reads and sends."
+            : "Runtime Gmail OAuth env is not configured, so Gmail read/send actions are unavailable.",
         ],
       },
     };
@@ -428,7 +471,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     const message =
       error instanceof Error ? error.message : "Unknown Supabase read failure.";
 
-    return fallbackDashboardData([
+    return emptyDashboardData([
       "Supabase env is present, but live reads failed.",
       message,
       hasRuntimeGmailEnv()
@@ -441,6 +484,66 @@ export async function getDashboardData(): Promise<DashboardData> {
 export async function getLeadRecord(companyId: string) {
   const data = await getDashboardData();
   return data.leads.find((lead) => lead.company.id === companyId) ?? null;
+}
+
+async function getEmailRecordForUpdate(emailId: string) {
+  const supabase = getSupabaseAdmin();
+
+  if (!supabase) {
+    throw new Error("Supabase client not configured. Cannot update email records.");
+  }
+
+  const { data, error } = await supabase
+    .from("emails")
+    .select("company_id, contact_id, campaign_id, metadata")
+    .eq("id", emailId)
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Failed to load email record: ${error?.message ?? "Missing email."}`);
+  }
+
+  return {
+    supabase,
+    companyId: String(data.company_id ?? ""),
+    contactId: data.contact_id ? String(data.contact_id) : null,
+    campaignId: data.campaign_id ? String(data.campaign_id) : null,
+    metadata:
+      typeof data.metadata === "object" && data.metadata !== null
+        ? (data.metadata as Record<string, unknown>)
+        : {},
+  };
+}
+
+async function insertActivityLog({
+  companyId,
+  campaignId,
+  actor,
+  eventType,
+  eventSummary,
+  payload,
+}: {
+  companyId: string;
+  campaignId?: string | null;
+  actor: string;
+  eventType: string;
+  eventSummary: string;
+  payload?: Record<string, unknown>;
+}) {
+  const supabase = getSupabaseAdmin();
+
+  if (!supabase) {
+    return;
+  }
+
+  await supabase.from("activity_logs").insert({
+    company_id: companyId,
+    campaign_id: campaignId ?? null,
+    actor,
+    event_type: eventType,
+    event_summary: eventSummary,
+    payload: payload ?? {},
+  });
 }
 
 export async function persistGmailDraftMetadata({
@@ -461,12 +564,14 @@ export async function persistGmailDraftMetadata({
   }
 
   try {
+    const existing = await getEmailRecordForUpdate(emailId);
     const { error } = await supabase
       .from("emails")
       .update({
         gmail_draft_id: draftId,
         gmail_thread_id: threadId,
         metadata: {
+          ...existing.metadata,
           gmailMessageId: messageId,
         },
         status: "approved",
@@ -488,4 +593,152 @@ export async function persistGmailDraftMetadata({
       `Failed to persist Gmail draft metadata: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
+}
+
+export async function markEmailAsSent({
+  emailId,
+  subject,
+  bodyText,
+  threadId,
+  messageId,
+}: {
+  emailId: string;
+  subject: string;
+  bodyText: string;
+  threadId: string | null;
+  messageId: string | null;
+}) {
+  const existing = await getEmailRecordForUpdate(emailId);
+  const sentAt = new Date().toISOString();
+
+  const { error } = await existing.supabase
+    .from("emails")
+    .update({
+      subject,
+      body_text: bodyText,
+      gmail_thread_id: threadId,
+      gmail_draft_id: null,
+      sent_at: sentAt,
+      status: "sent",
+      metadata: {
+        ...existing.metadata,
+        gmailMessageId: messageId,
+      },
+    })
+    .eq("id", emailId);
+
+  if (error) {
+    throw new Error(`Failed to mark email as sent: ${error.message}`);
+  }
+
+  if (existing.campaignId) {
+    const { error: campaignError } = await existing.supabase
+      .from("campaigns")
+      .update({
+        status: "sent",
+        last_touch_at: sentAt,
+      })
+      .eq("id", existing.campaignId);
+
+    if (campaignError) {
+      throw new Error(`Failed to update campaign after send: ${campaignError.message}`);
+    }
+  }
+
+  const { error: companyError } = await existing.supabase
+    .from("companies")
+    .update({
+      lead_status: "sent",
+    })
+    .eq("id", existing.companyId);
+
+  if (companyError) {
+    throw new Error(`Failed to update company after send: ${companyError.message}`);
+  }
+
+  await insertActivityLog({
+    companyId: existing.companyId,
+    campaignId: existing.campaignId,
+    actor: "operator",
+    eventType: "gmail_sent",
+    eventSummary: `Sent email: ${subject}`,
+    payload: {
+      emailId,
+      gmailMessageId: messageId,
+      gmailThreadId: threadId,
+    },
+  });
+
+  return { sentAt };
+}
+
+export async function createReplyRecord({
+  lead,
+  subject,
+  bodyText,
+  threadId,
+  messageId,
+}: {
+  lead: LeadRecord;
+  subject: string;
+  bodyText: string;
+  threadId: string | null;
+  messageId: string | null;
+}) {
+  const supabase = getSupabaseAdmin();
+
+  if (!supabase) {
+    throw new Error("Supabase client not configured. Cannot persist replies.");
+  }
+
+  const sentAt = new Date().toISOString();
+  const metadata = {
+    complianceChecks: lead.latestEmail.complianceChecks,
+    gmailMessageId: messageId,
+  };
+
+  const { error } = await supabase.from("emails").insert({
+    company_id: lead.company.id,
+    contact_id: lead.contact.id,
+    campaign_id: lead.campaign.id,
+    gmail_thread_id: threadId,
+    subject,
+    subject_variants: [subject],
+    body_text: bodyText,
+    body_html: "",
+    direction: "outbound",
+    status: "sent",
+    sent_at: sentAt,
+    compliance_footer: lead.latestEmail.complianceFooter,
+    metadata,
+  });
+
+  if (error) {
+    throw new Error(`Failed to persist sent reply: ${error.message}`);
+  }
+
+  const { error: campaignError } = await supabase
+    .from("campaigns")
+    .update({
+      last_touch_at: sentAt,
+    })
+    .eq("id", lead.campaign.id);
+
+  if (campaignError) {
+    throw new Error(`Failed to update campaign after reply: ${campaignError.message}`);
+  }
+
+  await insertActivityLog({
+    companyId: lead.company.id,
+    campaignId: lead.campaign.id,
+    actor: "operator",
+    eventType: "gmail_reply_sent",
+    eventSummary: `Sent threaded reply: ${subject}`,
+    payload: {
+      gmailMessageId: messageId,
+      gmailThreadId: threadId,
+    },
+  });
+
+  return { sentAt };
 }

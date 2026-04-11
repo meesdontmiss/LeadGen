@@ -99,15 +99,33 @@ export interface EmailDraft {
   id: string;
   companyId: string;
   contactId: string;
+  subject: string;
   status: EmailStatus;
+  direction: "outbound" | "inbound";
   subjectVariants: string[];
   plainText: string;
   html: string;
   complianceFooter: string[];
+  gmailThreadId: string | null;
+  gmailDraftId: string | null;
+  sentAt: string | null;
+  replyDetectedAt: string | null;
   complianceChecks: Array<{
     label: string;
     passed: boolean;
   }>;
+}
+
+export interface GmailThreadMessage {
+  id: string;
+  threadId: string;
+  from: string;
+  to: string;
+  subject: string;
+  snippet: string;
+  body: string;
+  sentAt: string;
+  direction: "inbound" | "outbound";
 }
 
 export interface Campaign {
@@ -183,11 +201,11 @@ export interface LeadRecord {
 }
 
 export interface IntegrationStatus {
-  dataSource: "mock" | "supabase";
+  dataSource: "empty" | "supabase";
   supabaseConfigured: boolean;
   supabaseProjectRef?: string;
   gmailConfigured: boolean;
-  gmailMode: "unconfigured" | "runtime_oauth" | "connector_scope_missing";
+  gmailMode: "unconfigured" | "runtime_oauth";
   notes: string[];
 }
 

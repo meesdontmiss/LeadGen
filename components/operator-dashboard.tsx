@@ -79,7 +79,7 @@ export function OperatorDashboard({ data }: { data: DashboardData }) {
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700">
                 <CheckCircle2 className="h-4 w-4" />
-                {data.integrations.dataSource === "supabase" ? "Live Data" : "Demo Mode"}
+                {data.integrations.dataSource === "supabase" ? "Live Data" : "Setup Needed"}
               </div>
               {data.integrations.gmailConfigured && (
                 <div className="flex items-center gap-2 rounded-full bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700">
