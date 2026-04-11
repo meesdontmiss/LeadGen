@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: projectRoot,
   },
+  skipProxyUrlNormalize: true,
 };
 
 export default nextConfig;

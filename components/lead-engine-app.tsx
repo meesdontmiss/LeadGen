@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, useDeferredValue, useState } from "react";
-import { Bot, MailCheck, MapPinned, Sparkles, TrendingUp } from "lucide-react";
+import { Bot, LogOut, MailCheck, MapPinned, Sparkles, TrendingUp } from "lucide-react";
 
 import { CompanyDetail } from "@/components/company-detail";
 import { DomainHealthPanel } from "@/components/domain-health-panel";
@@ -54,6 +54,11 @@ export function LeadEngineApp({ data }: { data: DashboardData }) {
     data.leads.find((lead) => lead.company.id === selectedLeadId) ??
     filteredLeads[0] ??
     data.leads[0];
+
+  async function handleLogout() {
+    await fetch("/api/logout", { method: "POST" });
+    window.location.reload();
+  }
 
   return (
     <main className="min-h-screen px-4 py-5 sm:px-6 lg:px-8">
@@ -123,6 +128,14 @@ export function LeadEngineApp({ data }: { data: DashboardData }) {
             <span>Neighborhood sweep: {data.discoveryPreset.neighborhoods.join(" · ")}</span>
             <span>Complaint rate: {formatPercent(data.summary.complaintRate)}</span>
             <span>Sent today: {data.summary.sentToday}</span>
+            <button
+              onClick={handleLogout}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-2 text-red-700 transition hover:bg-red-100"
+              title="Logout"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              Logout
+            </button>
           </div>
 
           <div className="mt-4 grid gap-2">

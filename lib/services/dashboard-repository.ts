@@ -96,12 +96,12 @@ export async function getDashboardData(): Promise<DashboardData> {
       workersResult,
       activityResult,
     ] = await Promise.all([
-      supabase.from("companies").select("*").order("created_at", { ascending: false }),
-      supabase.from("contacts").select("*").order("created_at", { ascending: false }),
-      supabase.from("site_audits").select("*").order("captured_at", { ascending: false }),
-      supabase.from("offers").select("*").order("created_at", { ascending: false }),
-      supabase.from("campaigns").select("*").order("created_at", { ascending: false }),
-      supabase.from("emails").select("*").order("created_at", { ascending: false }),
+      supabase.from("companies").select("*", { count: "exact" }).order("created_at", { ascending: false }).limit(1000),
+      supabase.from("contacts").select("*").order("created_at", { ascending: false }).limit(5000),
+      supabase.from("site_audits").select("*").order("captured_at", { ascending: false }).limit(5000),
+      supabase.from("offers").select("*").order("created_at", { ascending: false }).limit(5000),
+      supabase.from("campaigns").select("*").order("created_at", { ascending: false }).limit(5000),
+      supabase.from("emails").select("*").order("created_at", { ascending: false }).limit(5000),
       supabase.from("domain_health").select("*").order("domain"),
       supabase.from("worker_status").select("*").order("worker_key"),
       supabase.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(8),
@@ -457,18 +457,35 @@ export async function persistGmailDraftMetadata({
   const supabase = getSupabaseAdmin();
 
   if (!supabase) {
-    return;
+    throw new Error("Supabase client not configured. Cannot persist draft metadata.");
   }
 
-  await supabase
-    .from("emails")
-    .update({
-      gmail_draft_id: draftId,
-      gmail_thread_id: threadId,
-      metadata: {
-        gmailMessageId: messageId,
-      },
-      status: "approved",
-    })
-    .eq("id", emailId);
+  try {
+    const { error } = await supabase
+      .from("emails")
+      .update({
+        gmail_draft_id: draftId,
+        gmail_thread_id: threadId,
+        metadata: {
+          gmailMessageId: messageId,
+        },
+        status: "approved",
+      })
+      .eq("id", emailId);
+
+    if (error) {
+      console.error("[Supabase] Failed to persist Gmail draft metadata:", error);
+      throw new Error(`Failed to update email record: ${error.message}`);
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("[persistGmailDraftMetadata] Error:", error);
+    if (error instanceof Error && error.message.includes("Supabase client not configured")) {
+      throw error;
+    }
+    throw new Error(
+      `Failed to persist Gmail draft metadata: ${error instanceof Error ? error.message : "Unknown error"}`
+    );
+  }
 }

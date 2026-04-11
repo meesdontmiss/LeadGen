@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, MailPlus, Send, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Clock, MailPlus, Send, ShieldCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,8 +25,23 @@ export function OutreachReview({
     error: false,
   });
 
+  const [queueState, setQueueState] = useState<{
+    pending: boolean;
+    message: string | null;
+    error: boolean;
+  }>({
+    pending: false,
+    message: null,
+    error: false,
+  });
+
   useEffect(() => {
     setDraftState({
+      pending: false,
+      message: null,
+      error: false,
+    });
+    setQueueState({
       pending: false,
       message: null,
       error: false,
@@ -72,6 +87,46 @@ export function OutreachReview({
         pending: false,
         message:
           error instanceof Error ? error.message : "Failed to create Gmail draft.",
+        error: true,
+      });
+    }
+  }
+
+  async function handleQueueForApproval() {
+    setQueueState({
+      pending: true,
+      message: null,
+      error: false,
+    });
+
+    try {
+      // For now, this updates the lead status to 'draft_ready'
+      // In the future, this will trigger a workflow notification
+      const response = await fetch(`/api/leads/${lead.company.id}/queue`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "queue_for_approval",
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error ?? "Failed to queue for approval.");
+      }
+
+      setQueueState({
+        pending: false,
+        message: "Lead queued for approval successfully.",
+        error: false,
+      });
+    } catch (error) {
+      setQueueState({
+        pending: false,
+        message:
+          error instanceof Error ? error.message : "Failed to queue for approval.",
         error: true,
       });
     }
@@ -194,8 +249,23 @@ export function OutreachReview({
           >
             {draftState.pending ? "Creating draft..." : "Create Gmail draft"}
           </Button>
-          <Button variant="secondary" className="flex-1 min-w-[180px]">
-            Queue for approval
+          <Button
+            variant="secondary"
+            className="flex-1 min-w-[180px]"
+            onClick={handleQueueForApproval}
+            disabled={queueState.pending}
+          >
+            {queueState.pending ? (
+              <span className="flex items-center gap-2">
+                <Clock className="h-4 w-4 animate-spin" />
+                Queuing...
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <Clock className="h-4 w-4" />
+                Queue for approval
+              </span>
+            )}
           </Button>
         </div>
 
@@ -208,6 +278,18 @@ export function OutreachReview({
             }`}
           >
             {draftState.message}
+          </div>
+        ) : null}
+
+        {queueState.message ? (
+          <div
+            className={`rounded-[1rem] px-4 py-3 text-sm ${
+              queueState.error
+                ? "bg-rose-50 text-rose-700"
+                : "bg-emerald-50 text-emerald-700"
+            }`}
+          >
+            {queueState.message}
           </div>
         ) : null}
       </div>

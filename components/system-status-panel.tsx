@@ -1,4 +1,4 @@
-import { Bot, Flag, Layers3, ShieldBan } from "lucide-react";
+import { AlertCircle, Bot, Flag, Layers3, ShieldBan } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import type { WorkerStatus } from "@/lib/types";
@@ -19,6 +19,25 @@ export function SystemStatusPanel({
   phaseTwoModules: string[];
   phaseThreeModules: string[];
 }) {
+  if (workers.length === 0) {
+    return (
+      <section className="rounded-[2rem] border border-white/60 bg-white/72 p-8 text-center shadow-[0_20px_60px_rgba(38,25,16,0.08)] backdrop-blur">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-stone-100">
+          <AlertCircle className="h-8 w-8 text-stone-400" />
+        </div>
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-stone-500">
+          System Status
+        </p>
+        <h2 className="mt-2 text-xl font-semibold text-stone-950">
+          No workers running yet
+        </h2>
+        <p className="mt-2 max-w-md mx-auto text-sm text-stone-600">
+          Background workers will appear here once the discovery, audit, and outreach processes are activated.
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section className="rounded-[2rem] border border-white/60 bg-white/72 p-6 shadow-[0_20px_60px_rgba(38,25,16,0.08)] backdrop-blur">
       <div className="flex flex-wrap items-start justify-between gap-4">

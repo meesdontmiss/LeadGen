@@ -1,4 +1,4 @@
-import { CheckCircle2, MailWarning } from "lucide-react";
+import { AlertCircle, CheckCircle2, MailWarning } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import type { DomainHealth } from "@/lib/types";
@@ -11,6 +11,25 @@ export function DomainHealthPanel({
   domains: DomainHealth[];
   sendGuardrails: string[];
 }) {
+  if (domains.length === 0) {
+    return (
+      <section className="rounded-[2rem] border border-white/60 bg-white/72 p-8 text-center shadow-[0_20px_60px_rgba(38,25,16,0.08)] backdrop-blur">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-stone-100">
+          <AlertCircle className="h-8 w-8 text-stone-400" />
+        </div>
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-stone-500">
+          Domain Health
+        </p>
+        <h2 className="mt-2 text-xl font-semibold text-stone-950">
+          No domains configured yet
+        </h2>
+        <p className="mt-2 max-w-md mx-auto text-sm text-stone-600">
+          Add your sending domain and configure SPF, DKIM, and DMARC records before starting outbound campaigns.
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section className="rounded-[2rem] border border-white/60 bg-white/72 p-6 shadow-[0_20px_60px_rgba(38,25,16,0.08)] backdrop-blur">
       <div className="flex flex-wrap items-start justify-between gap-4">
