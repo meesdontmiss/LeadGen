@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, AlertTriangle, CheckCircle2, Mail, MessageSquare, TrendingUp } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2 } from "lucide-react";
 import type { ActivityItem } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { formatTimestamp } from "@/lib/utils";
@@ -55,7 +55,7 @@ export function ActivityFeed({ activity }: { activity: ActivityItem[] }) {
             </p>
           </div>
         ) : (
-          activity.map((item, index) => (
+          activity.map((item) => (
             <div
               key={item.id}
               className={`flex items-start gap-4 p-5 transition-colors hover:bg-stone-50/50 ${getBgColor(

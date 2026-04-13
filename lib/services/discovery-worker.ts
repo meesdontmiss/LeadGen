@@ -435,8 +435,6 @@ function buildPainPoints(candidate: CandidateLead) {
 
 function buildSolutionSteps(
   candidate: CandidateLead,
-  offerType: ReturnType<typeof recommendOfferType>,
-  painPoints: string[],
 ) {
   const steps: string[] = [];
 
@@ -501,14 +499,10 @@ function buildInitialProposal(
   const offer = offerLabel(offerType);
   const outcome = outcomeLabel(candidate.vertical);
   const painPoints = buildPainPoints(candidate);
-  const solutionSteps = buildSolutionSteps(candidate, offerType, painPoints);
+  const solutionSteps = buildSolutionSteps(candidate);
   const websiteReference = candidate.website
     ? `your site (${candidate.website})`
     : "your current web presence";
-  const discoveredEmailNote =
-    candidate.discoveredEmails.length > 0
-      ? "I also found a direct contact path on your site, so routing inquiries can be tightened quickly."
-      : "I could not find a clear direct contact flow from the public pages, which can reduce conversion intent.";
   const greetingTarget = candidate.name.includes(" ") ? candidate.name : `${candidate.name} team`;
 
   const subjectVariants = [

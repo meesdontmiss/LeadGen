@@ -2,10 +2,9 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Filter, ExternalLink, Mail, Phone, MapPin, X, Send, Clock, Star, Edit3, Eye, ChevronDown, ArrowRight, Globe, Check, AlertCircle } from "lucide-react";
+import { Search, Filter, Mail, Phone, MapPin, X, Send, Edit3, Eye, ArrowRight, Globe, Check, AlertCircle } from "lucide-react";
 import type { LeadRecord } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
-import { formatTimestamp, formatPercent } from "@/lib/utils";
 
 type ModalView = "preview" | "edit";
 

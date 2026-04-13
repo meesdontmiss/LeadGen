@@ -9,12 +9,10 @@ import {
   LogOut,
   Mail,
   MailOpen,
-  MessageSquare,
   Send,
   Star,
   TrendingUp,
   Users,
-  XCircle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { DashboardData, LeadRecord } from "@/lib/types";
@@ -165,8 +163,6 @@ export function OperatorDashboard({ data }: { data: DashboardData }) {
             <OverviewTab
               data={data}
               leads={data.leads}
-              positiveReplies={positiveReplies}
-              pendingFollowUps={pendingFollowUps}
               onNavigate={setActiveTab}
               onNavigateLeads={navigateToLeads}
             />
@@ -300,15 +296,11 @@ function MetricsGrid({
 function OverviewTab({
   data,
   leads,
-  positiveReplies,
-  pendingFollowUps,
   onNavigate,
   onNavigateLeads,
 }: {
   data: DashboardData;
   leads: LeadRecord[];
-  positiveReplies: number;
-  pendingFollowUps: number;
   onNavigate: (tab: TabKey) => void;
   onNavigateLeads: (statusFilter?: string) => void;
 }) {
