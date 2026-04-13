@@ -1,17 +1,24 @@
 "use client";
 
-import { useState } from "react";
-import { Search, Filter, ExternalLink, Mail, Phone, MapPin, X, Send, Clock, Star } from "lucide-react";
+import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { Search, Filter, ExternalLink, Mail, Phone, MapPin, X, Send, Clock, Star, Edit3, Eye, ChevronDown, ArrowRight, Globe, Check, AlertCircle } from "lucide-react";
 import type { LeadRecord } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { formatTimestamp, formatPercent } from "@/lib/utils";
 
+type ModalView = "preview" | "edit";
+
 export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRecord[]; initialStatusFilter?: string }) {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(initialStatusFilter);
   const [selectedLead, setSelectedLead] = useState<LeadRecord | null>(null);
-  const [draftBusy, setDraftBusy] = useState(false);
-  const [draftResult, setDraftResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [modalView, setModalView] = useState<ModalView>("preview");
+  const [editedSubject, setEditedSubject] = useState("");
+  const [editedBody, setEditedBody] = useState("");
+  const [actionBusy, setActionBusy] = useState<"draft" | "send" | null>(null);
+  const [actionResult, setActionResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const filteredLeads = leads.filter((lead) => {
     const matchesSearch =
@@ -33,6 +40,69 @@ export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRe
   });
 
   const statuses = Array.from(new Set(leads.map((l) => l.company.status)));
+
+  const openLeadPanel = useCallback((lead: LeadRecord) => {
+    setSelectedLead(lead);
+    setModalView("preview");
+    setEditedSubject(lead.latestEmail.subjectVariants[0] ?? lead.latestEmail.subject);
+    setEditedBody(lead.latestEmail.plainText);
+    setActionResult(null);
+    setActionBusy(null);
+  }, []);
+
+  const closePanel = useCallback(() => {
+    setSelectedLead(null);
+    setActionResult(null);
+    setActionBusy(null);
+  }, []);
+
+  async function handleCreateDraft() {
+    if (!selectedLead) return;
+    setActionBusy("draft");
+    setActionResult(null);
+    try {
+      const res = await fetch("/api/gmail/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId: selectedLead.company.id }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setActionResult({ ok: true, message: "Draft created in Gmail — check your drafts folder to review and send." });
+        router.refresh();
+      } else {
+        setActionResult({ ok: false, message: data.error || "Failed to create draft" });
+      }
+    } catch {
+      setActionResult({ ok: false, message: "Network error" });
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
+  async function handleSendNow() {
+    if (!selectedLead) return;
+    setActionBusy("send");
+    setActionResult(null);
+    try {
+      const res = await fetch("/api/gmail/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send_draft", companyId: selectedLead.company.id }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setActionResult({ ok: true, message: `Email sent to ${selectedLead.contact.email}` });
+        router.refresh();
+      } else {
+        setActionResult({ ok: false, message: data.error || "Failed to send" });
+      }
+    } catch {
+      setActionResult({ ok: false, message: "Network error" });
+    } finally {
+      setActionBusy(null);
+    }
+  }
 
   return (
     <div className="rounded-2xl border border-stone-200 bg-white shadow-sm">
@@ -103,7 +173,8 @@ export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRe
             {filteredLeads.map((lead) => (
               <tr
                 key={lead.company.id}
-                className="transition-colors hover:bg-stone-50/50"
+                className="transition-colors hover:bg-stone-50/50 cursor-pointer"
+                onClick={() => openLeadPanel(lead)}
               >
                 <td className="px-5 py-4">
                   <div>
@@ -153,39 +224,12 @@ export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRe
                   </div>
                 </td>
                 <td className="px-5 py-4 text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      onClick={() => { setSelectedLead(lead); setDraftResult(null); }}
-                      className="rounded-lg p-2 text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-950"
-                      title="View details"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={async () => {
-                        setDraftBusy(true);
-                        setDraftResult(null);
-                        try {
-                          const res = await fetch("/api/gmail/drafts", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ companyId: lead.company.id }),
-                          });
-                          const data = await res.json();
-                          setDraftResult({ ok: res.ok, message: res.ok ? "Draft created in Gmail" : data.error || "Failed" });
-                        } catch {
-                          setDraftResult({ ok: false, message: "Network error" });
-                        } finally {
-                          setDraftBusy(false);
-                        }
-                      }}
-                      disabled={draftBusy}
-                      className="rounded-lg p-2 text-stone-600 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50"
-                      title="Create Gmail draft"
-                    >
-                      <Mail className="h-4 w-4" />
-                    </button>
-                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); openLeadPanel(lead); }}
+                    className="rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-stone-800"
+                  >
+                    Review Draft
+                  </button>
                 </td>
               </tr>
             ))}
@@ -193,116 +237,210 @@ export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRe
         </table>
       </div>
 
-      {/* Draft result toast */}
-      {draftResult && (
-        <div className={`mx-5 my-3 rounded-lg px-4 py-2 text-sm font-medium ${draftResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
-          {draftResult.message}
-          <button onClick={() => setDraftResult(null)} className="ml-3 underline">Dismiss</button>
+      {filteredLeads.length === 0 && (
+        <div className="p-12 text-center">
+          <Search className="mx-auto mb-3 h-10 w-10 text-stone-300" />
+          <p className="text-sm text-stone-500">No leads match your filters.</p>
         </div>
       )}
 
-      {/* Lead Detail Panel */}
+      {/* Lead Detail + Email Preview Panel */}
       {selectedLead && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setSelectedLead(null)}>
-          <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => setSelectedLead(null)} className="absolute right-4 top-4 rounded-lg p-2 text-stone-400 hover:bg-stone-100 hover:text-stone-950">
-              <X className="h-5 w-5" />
-            </button>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-8 pb-8" onClick={closePanel}>
+          <div className="relative w-full max-w-3xl rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-stone-200 p-6">
+              <div className="flex-1 min-w-0">
+                <h2 className="text-xl font-bold text-stone-950 truncate">{selectedLead.company.name}</h2>
+                <p className="mt-1 text-sm text-stone-600">
+                  {selectedLead.company.vertical} · {selectedLead.company.city}, {selectedLead.company.state}
+                  {selectedLead.company.website && (
+                    <>
+                      {" · "}
+                      <a href={selectedLead.company.website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">
+                        <Globe className="h-3 w-3" />Website
+                      </a>
+                    </>
+                  )}
+                </p>
+              </div>
+              <button onClick={closePanel} className="ml-4 rounded-lg p-2 text-stone-400 hover:bg-stone-100 hover:text-stone-950 shrink-0">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
 
-            <h2 className="text-2xl font-bold text-stone-950">{selectedLead.company.name}</h2>
-            <p className="mt-1 text-sm text-stone-600">{selectedLead.company.vertical} · {selectedLead.company.city}, {selectedLead.company.state}</p>
+            {/* Quick Info Bar */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 border-b border-stone-200 p-4 bg-stone-50/50">
+              <div className="text-center">
+                <p className="text-xs text-stone-500">Score</p>
+                <p className="text-lg font-bold text-stone-950">{selectedLead.audit.scores.outreachScore}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-stone-500">Premium Fit</p>
+                <p className="text-lg font-bold text-stone-950">{selectedLead.company.premiumFit}%</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-stone-500">Contact</p>
+                <p className="text-sm font-semibold text-stone-950 truncate">{selectedLead.contact.fullName}</p>
+                <p className="text-xs text-stone-500 truncate">{selectedLead.contact.email}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-stone-500">Offer</p>
+                <p className="text-sm font-semibold text-stone-950">
+                  {selectedLead.offer.type.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                </p>
+              </div>
+            </div>
 
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <div className="rounded-xl border border-stone-200 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wider text-stone-500">Contact</p>
-                <p className="mt-1 text-sm font-semibold text-stone-950">{selectedLead.contact.fullName}</p>
-                <p className="text-xs text-stone-600">{selectedLead.contact.title}</p>
-                <a href={`mailto:${selectedLead.contact.email}`} className="mt-1 flex items-center gap-1 text-xs text-blue-600 hover:underline">
-                  <Mail className="h-3 w-3" /> {selectedLead.contact.email}
-                </a>
-                {selectedLead.company.phone && (
-                  <a href={`tel:${selectedLead.company.phone}`} className="mt-1 flex items-center gap-1 text-xs text-blue-600 hover:underline">
-                    <Phone className="h-3 w-3" /> {selectedLead.company.phone}
-                  </a>
+            {/* View Toggle */}
+            <div className="flex items-center gap-1 border-b border-stone-200 px-6 py-2">
+              <button
+                onClick={() => setModalView("preview")}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${modalView === "preview" ? "bg-stone-900 text-white" : "text-stone-600 hover:bg-stone-100"}`}
+              >
+                <Eye className="h-3.5 w-3.5" /> Email Preview
+              </button>
+              <button
+                onClick={() => setModalView("edit")}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${modalView === "edit" ? "bg-stone-900 text-white" : "text-stone-600 hover:bg-stone-100"}`}
+              >
+                <Edit3 className="h-3.5 w-3.5" /> Edit Draft
+              </button>
+            </div>
+
+            {/* Email Content */}
+            <div className="p-6">
+              {/* Subject Line */}
+              <div className="mb-4">
+                <label className="text-xs font-semibold uppercase tracking-wider text-stone-500">Subject Line</label>
+                {modalView === "preview" ? (
+                  <div className="mt-1">
+                    <p className="text-base font-semibold text-stone-950">{editedSubject}</p>
+                    {selectedLead.latestEmail.subjectVariants.length > 1 && (
+                      <div className="mt-2">
+                        <p className="text-xs text-stone-500 mb-1">Other subject options:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {selectedLead.latestEmail.subjectVariants.map((variant, i) => (
+                            <button
+                              key={i}
+                              onClick={() => setEditedSubject(variant)}
+                              className={`rounded-lg border px-3 py-1 text-xs transition-colors ${editedSubject === variant ? "border-blue-500 bg-blue-50 text-blue-700 font-medium" : "border-stone-200 text-stone-600 hover:bg-stone-50"}`}
+                            >
+                              {variant}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <input
+                    value={editedSubject}
+                    onChange={(e) => setEditedSubject(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-stone-900 focus:outline-none focus:ring-2 focus:ring-stone-900/10"
+                  />
                 )}
               </div>
 
-              <div className="rounded-xl border border-stone-200 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wider text-stone-500">Outreach Score</p>
-                <p className="mt-1 text-3xl font-bold text-stone-950">{selectedLead.audit.scores.outreachScore}</p>
-                <div className="mt-2 space-y-1 text-xs text-stone-600">
-                  <p>Premium Fit: {selectedLead.company.premiumFit}%</p>
-                  <p>Presentation Gap: {selectedLead.audit.scores.presentationGap}%</p>
-                  <p>Contactability: {selectedLead.company.contactability}%</p>
+              {/* To */}
+              <div className="mb-4">
+                <label className="text-xs font-semibold uppercase tracking-wider text-stone-500">To</label>
+                <p className="mt-1 text-sm text-stone-700">
+                  {selectedLead.contact.fullName} &lt;{selectedLead.contact.email}&gt;
+                </p>
+              </div>
+
+              {/* Email Body */}
+              <div className="mb-4">
+                <label className="text-xs font-semibold uppercase tracking-wider text-stone-500">Message</label>
+                {modalView === "preview" ? (
+                  <div className="mt-2 rounded-xl border border-stone-200 bg-stone-50/50 p-5">
+                    <pre className="whitespace-pre-wrap font-sans text-sm text-stone-800 leading-relaxed">{editedBody}</pre>
+                  </div>
+                ) : (
+                  <textarea
+                    value={editedBody}
+                    onChange={(e) => setEditedBody(e.target.value)}
+                    rows={16}
+                    className="mt-2 w-full rounded-xl border border-stone-300 px-4 py-3 text-sm leading-relaxed text-stone-800 focus:border-stone-900 focus:outline-none focus:ring-2 focus:ring-stone-900/10 font-mono"
+                  />
+                )}
+              </div>
+
+              {/* Compliance Footer Preview */}
+              {selectedLead.latestEmail.complianceFooter.length > 0 && (
+                <div className="mb-4 rounded-lg bg-stone-50 border border-stone-100 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-stone-400 mb-1">Compliance Footer (auto-appended)</p>
+                  <p className="text-xs text-stone-500 whitespace-pre-wrap">{selectedLead.latestEmail.complianceFooter.join("\n")}</p>
                 </div>
-              </div>
+              )}
 
-              <div className="rounded-xl border border-stone-200 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wider text-stone-500">Status</p>
-                <Badge variant={selectedLead.qualifies ? "positive" : "neutral"} className="mt-1">
-                  {selectedLead.company.status.replace("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())}
-                </Badge>
-                <p className="mt-2 text-xs text-stone-600">
-                  {selectedLead.qualifies ? "Qualifies for outreach" : "Does not meet outreach thresholds"}
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-stone-200 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wider text-stone-500">Offer</p>
-                <p className="mt-1 text-sm font-semibold text-stone-950">
-                  {selectedLead.offer.type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
-                </p>
-                <p className="mt-1 text-xs text-stone-600">{selectedLead.offer.rationale}</p>
-              </div>
+              {/* Audit Insights */}
+              {selectedLead.audit.weaknesses.length > 0 && (
+                <details className="mb-4">
+                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-stone-500 hover:text-stone-700">
+                    Site Audit Findings ({selectedLead.audit.weaknesses.length})
+                  </summary>
+                  <ul className="mt-2 space-y-1">
+                    {selectedLead.audit.weaknesses.map((w, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-stone-600">
+                        <ArrowRight className="h-3.5 w-3.5 mt-0.5 text-amber-500 shrink-0" />
+                        {w}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
             </div>
 
-            {selectedLead.company.website && (
-              <div className="mt-4 rounded-xl border border-stone-200 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wider text-stone-500">Website</p>
-                <a href={selectedLead.company.website} target="_blank" rel="noopener noreferrer" className="mt-1 text-sm text-blue-600 hover:underline">
-                  {selectedLead.company.website}
-                </a>
+            {/* Action Result */}
+            {actionResult && (
+              <div className={`mx-6 mb-4 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium ${actionResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                {actionResult.ok ? <Check className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
+                {actionResult.message}
               </div>
             )}
 
-            <div className="mt-6 flex gap-3">
-              <button
-                onClick={async () => {
-                  setDraftBusy(true);
-                  setDraftResult(null);
-                  try {
-                    const res = await fetch("/api/gmail/drafts", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ companyId: selectedLead.company.id }),
-                    });
-                    const data = await res.json();
-                    setDraftResult({ ok: res.ok, message: res.ok ? "Draft created in Gmail" : data.error || "Failed" });
-                  } catch {
-                    setDraftResult({ ok: false, message: "Network error" });
-                  } finally {
-                    setDraftBusy(false);
-                  }
-                }}
-                disabled={draftBusy}
-                className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-              >
-                <Mail className="h-4 w-4" />
-                {draftBusy ? "Creating..." : "Create Gmail Draft"}
-              </button>
-              <button
-                onClick={() => setSelectedLead(null)}
-                className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-50"
-              >
-                Close
-              </button>
-            </div>
-
-            {draftResult && (
-              <div className={`mt-3 rounded-lg px-4 py-2 text-sm font-medium ${draftResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
-                {draftResult.message}
+            {/* Action Buttons */}
+            <div className="flex items-center justify-between border-t border-stone-200 px-6 py-4 bg-stone-50/50 rounded-b-2xl">
+              <div className="flex items-center gap-2 text-xs text-stone-500">
+                {selectedLead.contact.email ? (
+                  <span className="flex items-center gap-1"><Check className="h-3 w-3 text-emerald-500" /> Email found</span>
+                ) : (
+                  <span className="flex items-center gap-1"><AlertCircle className="h-3 w-3 text-amber-500" /> No email on file</span>
+                )}
+                {selectedLead.company.phone && (
+                  <span className="flex items-center gap-1 ml-3">
+                    <Phone className="h-3 w-3 text-emerald-500" />
+                    <a href={`tel:${selectedLead.company.phone}`} className="hover:underline">{selectedLead.company.phone}</a>
+                  </span>
+                )}
               </div>
-            )}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={closePanel}
+                  className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={handleCreateDraft}
+                  disabled={!!actionBusy || !selectedLead.contact.email}
+                  className="flex items-center gap-2 rounded-lg border border-blue-600 bg-white px-4 py-2 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50 disabled:opacity-50"
+                >
+                  <Mail className="h-4 w-4" />
+                  {actionBusy === "draft" ? "Creating..." : "Save to Gmail Drafts"}
+                </button>
+                <button
+                  onClick={handleSendNow}
+                  disabled={!!actionBusy || !selectedLead.contact.email}
+                  className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                >
+                  <Send className="h-4 w-4" />
+                  {actionBusy === "send" ? "Sending..." : "Send Now"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

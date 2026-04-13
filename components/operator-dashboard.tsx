@@ -312,32 +312,11 @@ function OverviewTab({
   onNavigate: (tab: TabKey) => void;
   onNavigateLeads: (statusFilter?: string) => void;
 }) {
-  const [draftBusy, setDraftBusy] = useState<string | null>(null);
-  const [draftResult, setDraftResult] = useState<{ ok: boolean; message: string } | null>(null);
-
   const topLeads = [...leads]
     .sort((a, b) => b.audit.scores.outreachScore - a.audit.scores.outreachScore)
     .slice(0, 5);
 
   const recentActivity = data.activity.slice(0, 8);
-
-  async function handleCreateDraft(companyId: string) {
-    setDraftBusy(companyId);
-    setDraftResult(null);
-    try {
-      const res = await fetch("/api/gmail/drafts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId }),
-      });
-      const json = await res.json();
-      setDraftResult({ ok: res.ok, message: res.ok ? "Draft created" : json.error || "Failed" });
-    } catch {
-      setDraftResult({ ok: false, message: "Network error" });
-    } finally {
-      setDraftBusy(null);
-    }
-  }
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
@@ -381,12 +360,11 @@ function OverviewTab({
                   <p className="text-xs text-stone-500">Fit</p>
                 </div>
                 <button
-                  onClick={() => handleCreateDraft(lead.company.id)}
-                  disabled={draftBusy === lead.company.id}
-                  className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
-                  title="Create Gmail draft for this lead"
+                  onClick={() => onNavigateLeads()}
+                  className="rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-stone-800 transition-colors"
+                  title="Review email draft for this lead"
                 >
-                  {draftBusy === lead.company.id ? "..." : "Draft"}
+                  Review
                 </button>
                 <span
                   className={`rounded-full px-3 py-1 text-xs font-semibold ${
@@ -401,12 +379,6 @@ function OverviewTab({
             </div>
           ))}
         </div>
-        {draftResult && (
-          <div className={`mt-3 rounded-lg px-4 py-2 text-sm font-medium ${draftResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
-            {draftResult.message}
-            <button onClick={() => setDraftResult(null)} className="ml-3 underline text-xs">Dismiss</button>
-          </div>
-        )}
       </div>
 
       {/* Recent Activity */}
