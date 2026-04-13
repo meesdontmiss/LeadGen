@@ -678,13 +678,18 @@ export async function getDashboardData(): Promise<DashboardData> {
       detail: JSON.stringify(row.payload ?? {}),
     }));
 
+    const discoveryBbox = env.OPENCLAW_DISCOVERY_BBOX;
+    const bboxNeighborhoods = discoveryBbox
+      ? [`LA bbox: ${discoveryBbox}`]
+      : ["Beverly Hills", "Santa Monica", "West Hollywood", "Silver Lake", "Pasadena"];
+
     return {
       discoveryPreset: {
-        neighborhoods: [],
-        verticals: [],
-        keywords: [],
-        domainFilters: [],
-        minimumPremiumFit: 0,
+        neighborhoods: bboxNeighborhoods,
+        verticals: ["Interior Design", "Hair Salon", "Med Spa", "Dental", "Plastic Surgery"],
+        keywords: ["luxury", "premium", "boutique"],
+        domainFilters: ["yelp.com", "google.com"],
+        minimumPremiumFit: 65,
       },
       leads,
       domains: liveDomains,
@@ -720,8 +725,228 @@ export async function getDashboardData(): Promise<DashboardData> {
 }
 
 export async function getLeadRecord(companyId: string) {
-  const data = await getDashboardData();
-  return data.leads.find((lead) => lead.company.id === companyId) ?? null;
+  const supabase = getSupabaseAdmin();
+
+  if (!supabase) {
+    return null;
+  }
+
+  try {
+    const [
+      companyResult,
+      contactsResult,
+      auditsResult,
+      offersResult,
+      campaignsResult,
+      emailsResult,
+    ] = await Promise.all([
+      supabase.from("companies").select("*").eq("id", companyId).single(),
+      supabase.from("contacts").select("*").eq("company_id", companyId).eq("is_primary", true).maybeSingle(),
+      supabase.from("site_audits").select("*").eq("company_id", companyId).order("captured_at", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("offers").select("*").eq("company_id", companyId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("campaigns").select("*").eq("company_id", companyId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("emails").select("*").eq("company_id", companyId).eq("direction", "outbound").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    ]);
+
+    const company = companyResult.data;
+    const contact = contactsResult.data;
+    const audit = auditsResult.data;
+    const offer = offersResult.data;
+    const campaign = campaignsResult.data;
+    const email = emailsResult.data;
+
+    if (!company || !contact || !audit || !offer || !campaign || !email) {
+      return null;
+    }
+
+    const premiumFit = Number(audit.premium_fit ?? 0);
+    const presentationGap = Number(audit.presentation_gap ?? 0);
+    const contactability = Number(company.contactability ?? 0);
+
+    const companyObj: Company = {
+      id: String(company.id),
+      name: toStringOrEmpty(company.name),
+      vertical: toStringOrEmpty(company.vertical),
+      neighborhood: toStringOrEmpty(company.neighborhood),
+      city: toStringOrEmpty(company.city),
+      state: toStringOrEmpty(company.state),
+      domain: toStringOrEmpty(company.domain),
+      website: toStringOrEmpty(company.website_url),
+      phone: toStringOrEmpty(company.phone),
+      ownerName: toStringOrEmpty(company.owner_name),
+      premiumFit: Number(company.premium_fit ?? 0),
+      contactability,
+      status: toLeadStatus(String(company.lead_status ?? "new")),
+      source: toStringOrEmpty(company.source),
+      discoveredAt: toStringOrEmpty(company.created_at),
+      notes: toStringOrEmpty(company.notes),
+    };
+
+    const metadata = parseCampaignMetadata(campaign.metadata);
+
+    const latestEmail: EmailDraft = {
+      id: String(email.id),
+      companyId: String(email.company_id ?? ""),
+      contactId: String(email.contact_id ?? ""),
+      subject: toStringOrEmpty(email.subject),
+      status: toEmailStatus(String(email.status ?? "draft")),
+      direction: email.direction === "inbound" ? "inbound" : "outbound",
+      subjectVariants: asArray<string>(email.subject_variants),
+      plainText: toStringOrEmpty(email.body_text),
+      html: toStringOrEmpty(email.body_html),
+      complianceFooter: sanitizeFooterForOutbound(asArray<string>(email.compliance_footer)),
+      gmailThreadId: typeof email.gmail_thread_id === "string" ? email.gmail_thread_id : null,
+      gmailDraftId: typeof email.gmail_draft_id === "string" ? email.gmail_draft_id : null,
+      sentAt: typeof email.sent_at === "string" ? email.sent_at : null,
+      replyDetectedAt: typeof email.reply_detected_at === "string" ? email.reply_detected_at : null,
+      complianceChecks: [],
+    };
+
+    return {
+      company: companyObj,
+      contact: {
+        id: String(contact.id),
+        companyId: String(contact.company_id ?? ""),
+        fullName: toStringOrEmpty(contact.full_name),
+        title: toStringOrEmpty(contact.title),
+        email: toStringOrEmpty(contact.email),
+        confidence: Number(contact.confidence ?? 0),
+        source: toStringOrEmpty(contact.source),
+        primary: Boolean(contact.is_primary ?? true),
+      },
+      audit: {
+        id: String(audit.id),
+        companyId: String(audit.company_id ?? ""),
+        capturedAt: toStringOrEmpty(audit.captured_at),
+        scores: {
+          premiumFit,
+          presentationGap,
+          visualQuality: Number(audit.visual_quality ?? 0),
+          ctaQuality: Number(audit.cta_quality ?? 0),
+          trustSignals: Number(audit.trust_signals ?? 0),
+          mobileQuality: Number(audit.mobile_quality ?? 0),
+          seoBasics: Number(audit.seo_basics ?? 0),
+          contactability,
+          outreachScore: calculateOutreachScore({ premiumFit, presentationGap, contactability }),
+        },
+        navFindings: asArray<string>(audit.nav_summary),
+        ctaFindings: asArray<string>(audit.cta_summary),
+        formFindings: asArray<string>(audit.form_summary),
+        strengths: asArray<string>(audit.strengths),
+        weaknesses: asArray<string>(audit.weaknesses),
+        hook: toStringOrEmpty(audit.hook),
+        screenshotNotes: {
+          desktop: toStringOrEmpty(audit.screenshot_desktop_path),
+          mobile: toStringOrEmpty(audit.screenshot_mobile_path),
+        },
+        recommendedOfferType:
+          audit.recommended_offer_type === "free_prototype_site" ||
+          audit.recommended_offer_type === "free_video_photo_concept" ||
+          audit.recommended_offer_type === "free_teardown_brief"
+            ? audit.recommended_offer_type
+            : "free_teardown_brief",
+      },
+      offer: {
+        id: String(offer.id),
+        companyId: String(offer.company_id ?? ""),
+        type:
+          offer.offer_type === "free_prototype_site" ||
+          offer.offer_type === "free_video_photo_concept" ||
+          offer.offer_type === "free_teardown_brief"
+            ? offer.offer_type
+            : "free_teardown_brief",
+        rationale: toStringOrEmpty(offer.rationale),
+        teaserHeadline: toStringOrEmpty(offer.summary),
+        teaserSummary: toStringOrEmpty(offer.rationale),
+        homepageBrief: asArray<string>(offer.homepage_brief),
+        teaserJson:
+          typeof offer.teaser_page_json === "object" && offer.teaser_page_json !== null
+            ? (offer.teaser_page_json as Record<string, unknown>)
+            : {},
+      },
+      campaign: {
+        id: String(campaign.id),
+        companyId: String(campaign.company_id ?? ""),
+        status: toLeadStatus(String(campaign.status ?? "new")),
+        offerType:
+          campaign.offer_type === "free_prototype_site" ||
+          campaign.offer_type === "free_video_photo_concept" ||
+          campaign.offer_type === "free_teardown_brief"
+            ? campaign.offer_type
+            : "free_teardown_brief",
+        assignedTo: toStringOrEmpty(campaign.assigned_to),
+        sendDomain: toStringOrEmpty(campaign.send_domain),
+        lastTouchAt: toStringOrEmpty(campaign.last_touch_at ?? campaign.started_at),
+        nextTouchAt: toStringOrEmpty(campaign.next_touch_at ?? campaign.started_at),
+        pipelineValue: Number(metadata.pipelineValue),
+        followUpTouches: metadata.followUpTouches,
+        bookings: metadata.bookings,
+      },
+      latestEmail: isLegacyProposalCopy(latestEmail)
+        ? upgradeLegacyDraftCopy({
+            company: companyObj,
+            audit: {
+              id: String(audit.id),
+              companyId: String(audit.company_id ?? ""),
+              capturedAt: toStringOrEmpty(audit.captured_at),
+              scores: {
+                premiumFit,
+                presentationGap,
+                visualQuality: Number(audit.visual_quality ?? 0),
+                ctaQuality: Number(audit.cta_quality ?? 0),
+                trustSignals: Number(audit.trust_signals ?? 0),
+                mobileQuality: Number(audit.mobile_quality ?? 0),
+                seoBasics: Number(audit.seo_basics ?? 0),
+                contactability,
+                outreachScore: calculateOutreachScore({ premiumFit, presentationGap, contactability }),
+              },
+              navFindings: asArray<string>(audit.nav_summary),
+              ctaFindings: asArray<string>(audit.cta_summary),
+              formFindings: asArray<string>(audit.form_summary),
+              strengths: asArray<string>(audit.strengths),
+              weaknesses: asArray<string>(audit.weaknesses),
+              hook: toStringOrEmpty(audit.hook),
+              screenshotNotes: {
+                desktop: toStringOrEmpty(audit.screenshot_desktop_path),
+                mobile: toStringOrEmpty(audit.screenshot_mobile_path),
+              },
+              recommendedOfferType:
+                audit.recommended_offer_type === "free_prototype_site" ||
+                audit.recommended_offer_type === "free_video_photo_concept" ||
+                audit.recommended_offer_type === "free_teardown_brief"
+                  ? audit.recommended_offer_type
+                  : "free_teardown_brief",
+            },
+            offer: {
+              id: String(offer.id),
+              companyId: String(offer.company_id ?? ""),
+              type:
+                offer.offer_type === "free_prototype_site" ||
+                offer.offer_type === "free_video_photo_concept" ||
+                offer.offer_type === "free_teardown_brief"
+                  ? offer.offer_type
+                  : "free_teardown_brief",
+              rationale: toStringOrEmpty(offer.rationale),
+              teaserHeadline: toStringOrEmpty(offer.summary),
+              teaserSummary: toStringOrEmpty(offer.rationale),
+              homepageBrief: asArray<string>(offer.homepage_brief),
+              teaserJson:
+                typeof offer.teaser_page_json === "object" && offer.teaser_page_json !== null
+                  ? (offer.teaser_page_json as Record<string, unknown>)
+                  : {},
+            },
+            latestEmail,
+          })
+        : latestEmail,
+      qualifies: qualifiesForOutreach({
+        premiumFit: companyObj.premiumFit,
+        presentationGap,
+        contactability,
+      }),
+    } satisfies LeadRecord;
+  } catch {
+    return null;
+  }
 }
 
 async function getCampaignRecordById(campaignId: string) {

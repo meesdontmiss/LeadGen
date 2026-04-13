@@ -1,14 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Filter, ExternalLink, Mail, Phone, MapPin } from "lucide-react";
+import { Search, Filter, ExternalLink, Mail, Phone, MapPin, X, Send, Clock, Star } from "lucide-react";
 import type { LeadRecord } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
-import { formatTimestamp } from "@/lib/utils";
+import { formatTimestamp, formatPercent } from "@/lib/utils";
 
-export function LeadsTab({ leads }: { leads: LeadRecord[] }) {
+export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRecord[]; initialStatusFilter?: string }) {
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>(initialStatusFilter);
+  const [selectedLead, setSelectedLead] = useState<LeadRecord | null>(null);
+  const [draftBusy, setDraftBusy] = useState(false);
+  const [draftResult, setDraftResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const filteredLeads = leads.filter((lead) => {
     const matchesSearch =
@@ -152,14 +155,33 @@ export function LeadsTab({ leads }: { leads: LeadRecord[] }) {
                 <td className="px-5 py-4 text-right">
                   <div className="flex items-center justify-end gap-2">
                     <button
+                      onClick={() => { setSelectedLead(lead); setDraftResult(null); }}
                       className="rounded-lg p-2 text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-950"
                       title="View details"
                     >
                       <ExternalLink className="h-4 w-4" />
                     </button>
                     <button
-                      className="rounded-lg p-2 text-stone-600 transition-colors hover:bg-blue-50 hover:text-blue-600"
-                      title="Send email"
+                      onClick={async () => {
+                        setDraftBusy(true);
+                        setDraftResult(null);
+                        try {
+                          const res = await fetch("/api/gmail/drafts", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ companyId: lead.company.id }),
+                          });
+                          const data = await res.json();
+                          setDraftResult({ ok: res.ok, message: res.ok ? "Draft created in Gmail" : data.error || "Failed" });
+                        } catch {
+                          setDraftResult({ ok: false, message: "Network error" });
+                        } finally {
+                          setDraftBusy(false);
+                        }
+                      }}
+                      disabled={draftBusy}
+                      className="rounded-lg p-2 text-stone-600 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50"
+                      title="Create Gmail draft"
                     >
                       <Mail className="h-4 w-4" />
                     </button>
@@ -170,6 +192,120 @@ export function LeadsTab({ leads }: { leads: LeadRecord[] }) {
           </tbody>
         </table>
       </div>
+
+      {/* Draft result toast */}
+      {draftResult && (
+        <div className={`mx-5 my-3 rounded-lg px-4 py-2 text-sm font-medium ${draftResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+          {draftResult.message}
+          <button onClick={() => setDraftResult(null)} className="ml-3 underline">Dismiss</button>
+        </div>
+      )}
+
+      {/* Lead Detail Panel */}
+      {selectedLead && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setSelectedLead(null)}>
+          <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setSelectedLead(null)} className="absolute right-4 top-4 rounded-lg p-2 text-stone-400 hover:bg-stone-100 hover:text-stone-950">
+              <X className="h-5 w-5" />
+            </button>
+
+            <h2 className="text-2xl font-bold text-stone-950">{selectedLead.company.name}</h2>
+            <p className="mt-1 text-sm text-stone-600">{selectedLead.company.vertical} · {selectedLead.company.city}, {selectedLead.company.state}</p>
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <div className="rounded-xl border border-stone-200 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-stone-500">Contact</p>
+                <p className="mt-1 text-sm font-semibold text-stone-950">{selectedLead.contact.fullName}</p>
+                <p className="text-xs text-stone-600">{selectedLead.contact.title}</p>
+                <a href={`mailto:${selectedLead.contact.email}`} className="mt-1 flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                  <Mail className="h-3 w-3" /> {selectedLead.contact.email}
+                </a>
+                {selectedLead.company.phone && (
+                  <a href={`tel:${selectedLead.company.phone}`} className="mt-1 flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                    <Phone className="h-3 w-3" /> {selectedLead.company.phone}
+                  </a>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-stone-200 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-stone-500">Outreach Score</p>
+                <p className="mt-1 text-3xl font-bold text-stone-950">{selectedLead.audit.scores.outreachScore}</p>
+                <div className="mt-2 space-y-1 text-xs text-stone-600">
+                  <p>Premium Fit: {selectedLead.company.premiumFit}%</p>
+                  <p>Presentation Gap: {selectedLead.audit.scores.presentationGap}%</p>
+                  <p>Contactability: {selectedLead.company.contactability}%</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-stone-200 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-stone-500">Status</p>
+                <Badge variant={selectedLead.qualifies ? "positive" : "neutral"} className="mt-1">
+                  {selectedLead.company.status.replace("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                </Badge>
+                <p className="mt-2 text-xs text-stone-600">
+                  {selectedLead.qualifies ? "Qualifies for outreach" : "Does not meet outreach thresholds"}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-stone-200 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-stone-500">Offer</p>
+                <p className="mt-1 text-sm font-semibold text-stone-950">
+                  {selectedLead.offer.type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                </p>
+                <p className="mt-1 text-xs text-stone-600">{selectedLead.offer.rationale}</p>
+              </div>
+            </div>
+
+            {selectedLead.company.website && (
+              <div className="mt-4 rounded-xl border border-stone-200 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-stone-500">Website</p>
+                <a href={selectedLead.company.website} target="_blank" rel="noopener noreferrer" className="mt-1 text-sm text-blue-600 hover:underline">
+                  {selectedLead.company.website}
+                </a>
+              </div>
+            )}
+
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={async () => {
+                  setDraftBusy(true);
+                  setDraftResult(null);
+                  try {
+                    const res = await fetch("/api/gmail/drafts", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ companyId: selectedLead.company.id }),
+                    });
+                    const data = await res.json();
+                    setDraftResult({ ok: res.ok, message: res.ok ? "Draft created in Gmail" : data.error || "Failed" });
+                  } catch {
+                    setDraftResult({ ok: false, message: "Network error" });
+                  } finally {
+                    setDraftBusy(false);
+                  }
+                }}
+                disabled={draftBusy}
+                className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+              >
+                <Mail className="h-4 w-4" />
+                {draftBusy ? "Creating..." : "Create Gmail Draft"}
+              </button>
+              <button
+                onClick={() => setSelectedLead(null)}
+                className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-50"
+              >
+                Close
+              </button>
+            </div>
+
+            {draftResult && (
+              <div className={`mt-3 rounded-lg px-4 py-2 text-sm font-medium ${draftResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                {draftResult.message}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -457,6 +457,9 @@ function buildSolutionSteps(
 
 const AI_STYLE_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /\bi hope this email finds you well\b/gi, replacement: "" },
+  { pattern: /\bjust wanted to reach out\b/gi, replacement: "" },
+  { pattern: /\bi wanted to take a moment\b/gi, replacement: "" },
+  { pattern: /\bi came across your\b/gi, replacement: "I reviewed your" },
   { pattern: /\bleverage\b/gi, replacement: "use" },
   { pattern: /\bunlock\b/gi, replacement: "capture" },
   { pattern: /\bsynergy\b/gi, replacement: "alignment" },
@@ -464,6 +467,10 @@ const AI_STYLE_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /\bgame[\s-]?changing\b/gi, replacement: "high-impact" },
   { pattern: /\bseamless\b/gi, replacement: "simple" },
   { pattern: /\bdelve into\b/gi, replacement: "review" },
+  { pattern: /\btouching base\b/gi, replacement: "following up" },
+  { pattern: /\bpotential customers\b/gi, replacement: "buyers" },
+  { pattern: /\bdon't hesitate to\b/gi, replacement: "" },
+  { pattern: /\bplease feel free to\b/gi, replacement: "" },
 ];
 
 function normalizeSalesCopyTone(text: string) {
@@ -495,25 +502,25 @@ function buildInitialProposal(
   const greetingTarget = candidate.name.includes(" ") ? candidate.name : `${candidate.name} team`;
 
   const subjectVariants = [
-    `${candidate.name}: quick idea to increase ${outcome}`,
-    `${candidate.name} - 3 concrete fixes for ${location} traffic`,
+    `${candidate.name} — ${outcome} you're leaving on the table`,
+    `Spotted 3 quick wins for ${candidate.name}`,
+    `${candidate.name}: one change that drives more ${outcome}`,
   ];
 
   const plainText = normalizeSalesCopyTone([
     `Hi ${greetingTarget},`,
     "",
-    `I reviewed ${websiteReference} for your ${candidate.vertical.toLowerCase()} business in ${location}. You are getting attention, but parts of the journey likely make potential customers drop before they book.`,
+    `I took a hard look at ${websiteReference} from a buyer's perspective in ${location}. You clearly do great work — but the site is losing people before they ever reach out.`,
     "",
-    "What stood out:",
-    ...painPoints.map((point) => `- ${point}`),
-    `- ${discoveredEmailNote}`,
+    `Here's what's costing you ${outcome}:`,
+    ...painPoints.map((point) => `→ ${point}`),
     "",
-    `What I would execute first for ${candidate.name}:`,
-    ...solutionSteps.map((step, index) => `${index + 1}) ${step}`),
+    "What I'd fix first:",
+    ...solutionSteps.map((step, index) => `${index + 1}. ${step}`),
     "",
-    `If helpful, I can send a tailored no-cost ${offer} built around your current pages and local positioning.`,
-    "Open to a quick 15-minute call this week to review it together?",
-    "Tuesday or Wednesday afternoon both work on my side.",
+    `I already built a custom ${offer} around your site and ${location} market. Happy to send it over — no cost, no catch.`,
+    "",
+    "Worth a 15-min call this week?",
   ].join("\n"));
 
   return {

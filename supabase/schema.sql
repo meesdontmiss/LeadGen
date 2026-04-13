@@ -236,6 +236,14 @@ create table if not exists activity_logs (
 create index if not exists activity_logs_company_idx on activity_logs (company_id, created_at desc);
 create index if not exists activity_logs_campaign_idx on activity_logs (campaign_id, created_at desc);
 
+create table if not exists rate_limits (
+  key text primary key,
+  count integer not null default 0,
+  reset_at timestamptz not null
+);
+
+create index if not exists rate_limits_reset_at_idx on rate_limits (reset_at);
+
 create trigger companies_updated_at
 before update on companies
 for each row execute function set_updated_at();

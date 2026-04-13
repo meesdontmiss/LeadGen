@@ -6,6 +6,7 @@ import {
   BarChart3,
   CheckCircle2,
   Clock,
+  LogOut,
   Mail,
   MailOpen,
   MessageSquare,
@@ -35,6 +36,13 @@ interface TabConfig {
 
 export function OperatorDashboard({ data }: { data: DashboardData }) {
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [leadsStatusFilter, setLeadsStatusFilter] = useState<string>("all");
+
+  function navigateToLeads(statusFilter?: string) {
+    if (statusFilter) setLeadsStatusFilter(statusFilter);
+    else setLeadsStatusFilter("all");
+    setActiveTab("leads");
+  }
 
   // Calculate metrics
   const totalLeads = data.leads.length;
@@ -88,6 +96,17 @@ export function OperatorDashboard({ data }: { data: DashboardData }) {
                   Gmail Connected
                 </div>
               )}
+              <button
+                onClick={async () => {
+                  await fetch("/api/logout", { method: "POST" });
+                  window.location.reload();
+                }}
+                className="flex items-center gap-2 rounded-full bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-100"
+                title="Logout"
+              >
+                <LogOut className="h-4 w-4" />
+                Logout
+              </button>
             </div>
           </div>
         </div>
@@ -105,6 +124,8 @@ export function OperatorDashboard({ data }: { data: DashboardData }) {
           pendingFollowUps={pendingFollowUps}
           pipelineValue={data.summary.pipelineValue}
           positiveReplyRate={data.summary.positiveReplyRate}
+          onNavigateLeads={navigateToLeads}
+          onNavigate={setActiveTab}
         />
 
         {/* Tab Navigation */}
@@ -146,9 +167,11 @@ export function OperatorDashboard({ data }: { data: DashboardData }) {
               leads={data.leads}
               positiveReplies={positiveReplies}
               pendingFollowUps={pendingFollowUps}
+              onNavigate={setActiveTab}
+              onNavigateLeads={navigateToLeads}
             />
           )}
-          {activeTab === "leads" && <LeadsTab leads={data.leads} />}
+          {activeTab === "leads" && <LeadsTab leads={data.leads} initialStatusFilter={leadsStatusFilter} />}
           {activeTab === "inbox" && <InboxTab leads={data.leads} />}
           {activeTab === "followups" && <FollowUpsTab leads={data.leads} />}
           {activeTab === "activity" && <ActivityFeed activity={data.activity} />}
@@ -169,6 +192,8 @@ function MetricsGrid({
   pendingFollowUps,
   pipelineValue,
   positiveReplyRate,
+  onNavigateLeads,
+  onNavigate,
 }: {
   totalLeads: number;
   qualifiedLeads: number;
@@ -179,6 +204,8 @@ function MetricsGrid({
   pendingFollowUps: number;
   pipelineValue: number;
   positiveReplyRate: number;
+  onNavigateLeads: (statusFilter?: string) => void;
+  onNavigate: (tab: TabKey) => void;
 }) {
   const metrics = [
     {
@@ -187,6 +214,7 @@ function MetricsGrid({
       icon: Users,
       color: "blue",
       trend: `${formatCompactNumber(qualifiedLeads)} qualified`,
+      action: () => onNavigateLeads(),
     },
     {
       label: "Drafts Ready",
@@ -194,6 +222,7 @@ function MetricsGrid({
       icon: Mail,
       color: "amber",
       trend: "Awaiting review",
+      action: () => onNavigateLeads("draft_ready"),
     },
     {
       label: "Emails Sent",
@@ -201,6 +230,7 @@ function MetricsGrid({
       icon: Send,
       color: "purple",
       trend: "Outbound touches",
+      action: () => onNavigateLeads("sent"),
     },
     {
       label: "Replies",
@@ -208,6 +238,7 @@ function MetricsGrid({
       icon: MailOpen,
       color: "emerald",
       trend: `${positiveReplies} positive`,
+      action: () => onNavigate("inbox"),
     },
     {
       label: "Follow-ups",
@@ -215,6 +246,7 @@ function MetricsGrid({
       icon: Clock,
       color: "orange",
       trend: "Pending touches",
+      action: () => onNavigate("followups"),
     },
     {
       label: "Pipeline Value",
@@ -222,6 +254,7 @@ function MetricsGrid({
       icon: TrendingUp,
       color: "indigo",
       trend: `${formatPercent(positiveReplyRate)} reply rate`,
+      action: () => onNavigateLeads("qualified"),
     },
   ];
 
@@ -239,9 +272,10 @@ function MetricsGrid({
       {metrics.map((metric) => {
         const colors = colorClasses[metric.color as keyof typeof colorClasses];
         return (
-          <div
+          <button
             key={metric.label}
-            className="group relative overflow-hidden rounded-2xl border border-stone-200 bg-white p-5 shadow-sm transition-all hover:shadow-lg hover:-translate-y-0.5"
+            onClick={metric.action}
+            className="group relative overflow-hidden rounded-2xl border border-stone-200 bg-white p-5 shadow-sm transition-all hover:shadow-lg hover:-translate-y-0.5 text-left cursor-pointer"
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">
@@ -256,7 +290,7 @@ function MetricsGrid({
               </div>
             </div>
             <div className={`absolute bottom-0 left-0 h-1 w-full ${colors.bg}`} />
-          </div>
+          </button>
         );
       })}
     </div>
@@ -268,17 +302,42 @@ function OverviewTab({
   leads,
   positiveReplies,
   pendingFollowUps,
+  onNavigate,
+  onNavigateLeads,
 }: {
   data: DashboardData;
   leads: LeadRecord[];
   positiveReplies: number;
   pendingFollowUps: number;
+  onNavigate: (tab: TabKey) => void;
+  onNavigateLeads: (statusFilter?: string) => void;
 }) {
-  // Get top leads by outreach score
-  const topLeads = leads.slice(0, 5);
-  
-  // Recent activity
+  const [draftBusy, setDraftBusy] = useState<string | null>(null);
+  const [draftResult, setDraftResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const topLeads = [...leads]
+    .sort((a, b) => b.audit.scores.outreachScore - a.audit.scores.outreachScore)
+    .slice(0, 5);
+
   const recentActivity = data.activity.slice(0, 8);
+
+  async function handleCreateDraft(companyId: string) {
+    setDraftBusy(companyId);
+    setDraftResult(null);
+    try {
+      const res = await fetch("/api/gmail/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId }),
+      });
+      const json = await res.json();
+      setDraftResult({ ok: res.ok, message: res.ok ? "Draft created" : json.error || "Failed" });
+    } catch {
+      setDraftResult({ ok: false, message: "Network error" });
+    } finally {
+      setDraftBusy(null);
+    }
+  }
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
@@ -289,9 +348,12 @@ function OverviewTab({
             <Star className="h-5 w-5 text-amber-500" />
             <h3 className="text-lg font-semibold text-stone-950">Top Priority Leads</h3>
           </div>
-          <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
-            Top {topLeads.length}
-          </span>
+          <button
+            onClick={() => onNavigateLeads("qualified")}
+            className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition-colors"
+          >
+            View all qualified
+          </button>
         </div>
         <div className="space-y-3">
           {topLeads.map((lead) => (
@@ -299,25 +361,33 @@ function OverviewTab({
               key={lead.company.id}
               className="flex items-center justify-between rounded-xl border border-stone-100 bg-stone-50/50 p-4 transition-all hover:bg-white hover:shadow-md"
             >
-              <div className="flex-1">
-                <p className="font-semibold text-stone-950">{lead.company.name}</p>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-stone-950 truncate">{lead.company.name}</p>
                 <p className="text-sm text-stone-600">
                   {lead.company.vertical} · {lead.company.city}
                 </p>
               </div>
-              <div className="flex items-center gap-4">
-                <div className="text-right">
+              <div className="flex items-center gap-3 ml-3">
+                <div className="text-right hidden sm:block">
                   <p className="text-sm font-semibold text-stone-950">
                     {lead.audit.scores.outreachScore}
                   </p>
                   <p className="text-xs text-stone-500">Score</p>
                 </div>
-                <div className="text-right">
+                <div className="text-right hidden sm:block">
                   <p className="text-sm font-semibold text-stone-950">
                     {lead.company.premiumFit}%
                   </p>
                   <p className="text-xs text-stone-500">Fit</p>
                 </div>
+                <button
+                  onClick={() => handleCreateDraft(lead.company.id)}
+                  disabled={draftBusy === lead.company.id}
+                  className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  title="Create Gmail draft for this lead"
+                >
+                  {draftBusy === lead.company.id ? "..." : "Draft"}
+                </button>
                 <span
                   className={`rounded-full px-3 py-1 text-xs font-semibold ${
                     lead.qualifies
@@ -331,6 +401,12 @@ function OverviewTab({
             </div>
           ))}
         </div>
+        {draftResult && (
+          <div className={`mt-3 rounded-lg px-4 py-2 text-sm font-medium ${draftResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+            {draftResult.message}
+            <button onClick={() => setDraftResult(null)} className="ml-3 underline text-xs">Dismiss</button>
+          </div>
+        )}
       </div>
 
       {/* Recent Activity */}
@@ -340,18 +416,25 @@ function OverviewTab({
             <Activity className="h-5 w-5 text-blue-500" />
             <h3 className="text-lg font-semibold text-stone-950">Recent Activity</h3>
           </div>
-          <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-            Last 24h
-          </span>
+          <button
+            onClick={() => onNavigate("activity")}
+            className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100 transition-colors"
+          >
+            View all
+          </button>
         </div>
         <div className="space-y-3">
+          {recentActivity.length === 0 && (
+            <p className="py-8 text-center text-sm text-stone-500">No activity recorded yet. Run a discovery scan or send an email to get started.</p>
+          )}
           {recentActivity.map((item) => (
             <div
               key={item.id}
-              className="flex items-start gap-3 rounded-xl border border-stone-100 bg-stone-50/50 p-4"
+              className="flex items-start gap-3 rounded-xl border border-stone-100 bg-stone-50/50 p-4 transition-all hover:bg-white hover:shadow-sm cursor-pointer"
+              onClick={() => onNavigate("activity")}
             >
               <div
-                className={`mt-0.5 h-2 w-2 rounded-full ${
+                className={`mt-0.5 h-2 w-2 rounded-full shrink-0 ${
                   item.tone === "positive"
                     ? "bg-emerald-500"
                     : item.tone === "warning"
@@ -359,9 +442,9 @@ function OverviewTab({
                     : "bg-stone-400"
                 }`}
               />
-              <div className="flex-1">
-                <p className="text-sm font-medium text-stone-950">{item.title}</p>
-                <p className="mt-1 text-xs text-stone-600">{item.detail}</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-stone-950 truncate">{item.title}</p>
+                <p className="mt-1 text-xs text-stone-600 line-clamp-2">{item.detail}</p>
                 <p className="mt-1 text-xs text-stone-500">{new Date(item.at).toLocaleString()}</p>
               </div>
             </div>
@@ -371,9 +454,17 @@ function OverviewTab({
 
       {/* Pipeline Breakdown */}
       <div className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm lg:col-span-2">
-        <div className="mb-5 flex items-center gap-2">
-          <BarChart3 className="h-5 w-5 text-indigo-500" />
-          <h3 className="text-lg font-semibold text-stone-950">Pipeline Breakdown</h3>
+        <div className="mb-5 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-indigo-500" />
+            <h3 className="text-lg font-semibold text-stone-950">Pipeline Breakdown</h3>
+          </div>
+          <button
+            onClick={() => onNavigateLeads()}
+            className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors"
+          >
+            View all leads
+          </button>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
@@ -385,7 +476,11 @@ function OverviewTab({
             const count = leads.filter((l) => l.company.status === item.status).length;
             const percentage = leads.length > 0 ? (count / leads.length) * 100 : 0;
             return (
-              <div key={item.stage} className="rounded-xl border border-stone-100 bg-stone-50/50 p-5">
+              <button
+                key={item.stage}
+                onClick={() => onNavigateLeads(item.status)}
+                className="rounded-xl border border-stone-100 bg-stone-50/50 p-5 text-left transition-all hover:bg-white hover:shadow-md cursor-pointer"
+              >
                 <p className="text-sm font-medium text-stone-600">{item.stage}</p>
                 <p className="mt-2 text-3xl font-bold text-stone-950">{count}</p>
                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-200">
@@ -403,7 +498,7 @@ function OverviewTab({
                   />
                 </div>
                 <p className="mt-2 text-xs text-stone-600">{formatPercent(percentage)} of pipeline</p>
-              </div>
+              </button>
             );
           })}
         </div>

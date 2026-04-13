@@ -1,24 +1,25 @@
-// Simple in-memory rate limiter
-// For production, use Redis or Upstash
+import { getSupabaseAdmin } from "@/lib/services/supabase-admin";
 
-interface RateLimitEntry {
-  count: number;
+interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;
   resetAt: number;
 }
 
-const rateLimitStore = new Map<string, RateLimitEntry>();
+// In-memory fallback for when Supabase is unavailable
+const memoryStore = new Map<string, { count: number; resetAt: number }>();
 
-// Clean up expired entries every 10 minutes
+// Clean up expired in-memory entries every 10 minutes
 setInterval(() => {
   const now = Date.now();
-  for (const [key, entry] of rateLimitStore.entries()) {
+  for (const [key, entry] of memoryStore.entries()) {
     if (entry.resetAt <= now) {
-      rateLimitStore.delete(key);
+      memoryStore.delete(key);
     }
   }
 }, 10 * 60 * 1000);
 
-export function checkRateLimit({
+function checkMemoryRateLimit({
   key,
   maxRequests,
   windowMs,
@@ -26,37 +27,96 @@ export function checkRateLimit({
   key: string;
   maxRequests: number;
   windowMs: number;
-}): { allowed: boolean; remaining: number; resetAt: number } {
+}): RateLimitResult {
   const now = Date.now();
-  const entry = rateLimitStore.get(key);
+  const entry = memoryStore.get(key);
 
   if (!entry || entry.resetAt <= now) {
-    // Create new window
-    rateLimitStore.set(key, {
-      count: 1,
-      resetAt: now + windowMs,
-    });
-    return {
-      allowed: true,
-      remaining: maxRequests - 1,
-      resetAt: now + windowMs,
-    };
+    memoryStore.set(key, { count: 1, resetAt: now + windowMs });
+    return { allowed: true, remaining: maxRequests - 1, resetAt: now + windowMs };
   }
 
   if (entry.count >= maxRequests) {
-    return {
-      allowed: false,
-      remaining: 0,
-      resetAt: entry.resetAt,
-    };
+    return { allowed: false, remaining: 0, resetAt: entry.resetAt };
   }
 
   entry.count++;
-  return {
-    allowed: true,
-    remaining: maxRequests - entry.count,
-    resetAt: entry.resetAt,
-  };
+  return { allowed: true, remaining: maxRequests - entry.count, resetAt: entry.resetAt };
+}
+
+export async function checkRateLimit({
+  key,
+  maxRequests,
+  windowMs,
+}: {
+  key: string;
+  maxRequests: number;
+  windowMs: number;
+}): Promise<RateLimitResult> {
+  const supabase = getSupabaseAdmin();
+
+  if (!supabase) {
+    return checkMemoryRateLimit({ key, maxRequests, windowMs });
+  }
+
+  const now = new Date();
+  const resetAt = new Date(Date.now() + windowMs);
+
+  try {
+    // Clean up expired entries periodically (1% chance per request)
+    if (Math.random() < 0.01) {
+      await supabase.from("rate_limits").delete().lt("reset_at", now.toISOString());
+    }
+
+    // Try to get existing entry
+    const { data, error } = await supabase
+      .from("rate_limits")
+      .select("count, reset_at")
+      .eq("key", key)
+      .single();
+
+    if (error || !data) {
+      // No entry exists — create one
+      await supabase.from("rate_limits").upsert(
+        { key, count: 1, reset_at: resetAt.toISOString() },
+        { onConflict: "key" },
+      );
+      return { allowed: true, remaining: maxRequests - 1, resetAt: resetAt.getTime() };
+    }
+
+    const existingResetAt = new Date(data.reset_at).getTime();
+
+    // Window expired — reset
+    if (existingResetAt <= Date.now()) {
+      await supabase
+        .from("rate_limits")
+        .update({ count: 1, reset_at: resetAt.toISOString() })
+        .eq("key", key);
+      return { allowed: true, remaining: maxRequests - 1, resetAt: resetAt.getTime() };
+    }
+
+    const currentCount = data.count;
+
+    // Over limit
+    if (currentCount >= maxRequests) {
+      return { allowed: false, remaining: 0, resetAt: existingResetAt };
+    }
+
+    // Increment count
+    await supabase
+      .from("rate_limits")
+      .update({ count: currentCount + 1 })
+      .eq("key", key);
+
+    return {
+      allowed: true,
+      remaining: maxRequests - currentCount - 1,
+      resetAt: existingResetAt,
+    };
+  } catch {
+    // Fallback to in-memory if Supabase query fails
+    return checkMemoryRateLimit({ key, maxRequests, windowMs });
+  }
 }
 
 // Predefined rate limits for different endpoint types

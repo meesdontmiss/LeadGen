@@ -56,7 +56,7 @@ export async function proxy(request: NextRequest) {
   const ip = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown";
   const rateLimitKey = `${ip}:${pathname}`;
   const rateLimitConfig = getRateLimitConfig(pathname);
-  const rateLimitResult = checkRateLimit({
+  const rateLimitResult = await checkRateLimit({
     key: rateLimitKey,
     ...rateLimitConfig,
   });

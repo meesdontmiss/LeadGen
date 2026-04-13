@@ -15,7 +15,7 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Luxury Local Lead Engine",
+  title: "OpenClaw Lead Engine",
   description:
     "Discover premium local service leads, audit weak web presentation, and manage compliant outreach from one operator-first workspace.",
 };

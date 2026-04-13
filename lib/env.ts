@@ -51,6 +51,7 @@ const envSchema = z.object({
   SENDING_DOMAIN: optionalString(),
   BUSINESS_MAILING_ADDRESS: optionalString(),
   PHYSICAL_ADDRESS: optionalString(),
+  PLAYWRIGHT_BASE_URL: optionalUrl(),
 });
 
 const parsedEnv = envSchema.parse({
@@ -72,6 +73,7 @@ const parsedEnv = envSchema.parse({
   SENDING_DOMAIN: process.env.SENDING_DOMAIN,
   BUSINESS_MAILING_ADDRESS: process.env.BUSINESS_MAILING_ADDRESS,
   PHYSICAL_ADDRESS: process.env.PHYSICAL_ADDRESS,
+  PLAYWRIGHT_BASE_URL: process.env.PLAYWRIGHT_BASE_URL,
 });
 
 export const env = parsedEnv;
