@@ -452,10 +452,6 @@ export function InboxTab({ leads }: { leads: LeadRecord[] }) {
                 <DraftPanel
                   lead={selectedLead}
                   sendState={sendState}
-                  canSend={
-                    selectedLead.company.status === "draft_ready" &&
-                    selectedLead.latestEmail.status === "approved"
-                  }
                   onSend={handleSendDraft}
                 />
               ) : (
@@ -508,12 +504,10 @@ function InboxSummary({
 function DraftPanel({
   lead,
   sendState,
-  canSend,
   onSend,
 }: {
   lead: LeadRecord;
   sendState: SendState;
-  canSend: boolean;
   onSend: () => Promise<void>;
 }) {
   return (
@@ -533,7 +527,7 @@ function DraftPanel({
       <div className="flex items-center gap-3">
         <button
           onClick={() => void onSend()}
-          disabled={sendState.pending || !canSend}
+          disabled={sendState.pending}
           className="inline-flex items-center gap-2 rounded-xl bg-stone-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {sendState.pending ? (
@@ -541,15 +535,9 @@ function DraftPanel({
           ) : (
             <Send className="h-4 w-4" />
           )}
-          {canSend ? "Send from Gmail" : "Awaiting approval"}
+          Send from Gmail
         </button>
       </div>
-
-      {!canSend ? (
-        <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Proposal is pending approval. Use <span className="font-semibold">Queue for approval</span> first, then send.
-        </div>
-      ) : null}
 
       {sendState.error ? (
         <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">

@@ -55,7 +55,12 @@ describe("API gmail send route", () => {
     expect(mocks.sendGmailMessage).not.toHaveBeenCalled();
   });
 
-  it("blocks send_draft when proposal has not been approved", async () => {
+  it("sends draft proposal without a separate approval step", async () => {
+    mocks.sanitizeFooterForOutbound.mockReturnValue(["Reply opt out to unsubscribe."]);
+    mocks.sendGmailMessage.mockResolvedValue({
+      threadId: "thread-1",
+      messageId: "message-456",
+    });
     mocks.getLeadRecord.mockResolvedValue({
       company: {
         id: "company-1",
@@ -91,12 +96,24 @@ describe("API gmail send route", () => {
       }),
     );
 
-    const payload = (await response.json()) as { error?: string };
+    const payload = (await response.json()) as { ok?: boolean; action?: string };
 
-    expect(response.status).toBe(400);
-    expect(payload.error).toContain("pending approval");
-    expect(mocks.sendGmailMessage).not.toHaveBeenCalled();
-    expect(mocks.markEmailAsSent).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(payload.ok).toBe(true);
+    expect(payload.action).toBe("send_draft");
+    expect(mocks.sendGmailMessage).toHaveBeenCalledWith({
+      to: "owner@openclaw.dev",
+      subject: "Draft subject",
+      body: "Draft body\n\nReply opt out to unsubscribe.",
+      threadId: "thread-1",
+    });
+    expect(mocks.markEmailAsSent).toHaveBeenCalledWith({
+      emailId: "email-1",
+      subject: "Draft subject",
+      bodyText: "Draft body\n\nReply opt out to unsubscribe.",
+      threadId: "thread-1",
+      messageId: "message-456",
+    });
   });
 
   it("sends approved draft and persists sent metadata", async () => {
@@ -169,5 +186,49 @@ describe("API gmail send route", () => {
       threadId: "thread-1",
       messageId: "message-123",
     });
+  });
+
+  it("blocks send_draft when latest email is no longer a draft", async () => {
+    mocks.getLeadRecord.mockResolvedValue({
+      company: {
+        id: "company-2",
+        name: "OpenClaw Studio",
+        status: "sent",
+      },
+      contact: {
+        email: "owner@openclaw.dev",
+      },
+      latestEmail: {
+        id: "email-2",
+        subject: "Already sent",
+        subjectVariants: ["Already sent"],
+        plainText: "Already sent body",
+        complianceFooter: ["Reply opt out to unsubscribe."],
+        gmailThreadId: "thread-2",
+        status: "sent",
+      },
+    });
+
+    const { POST } = await import("../app/api/gmail/send/route");
+
+    const response = await POST(
+      new Request("http://localhost/api/gmail/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "send_draft",
+          companyId: "company-2",
+        }),
+      }),
+    );
+
+    const payload = (await response.json()) as { error?: string };
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toContain("not in draft state");
+    expect(mocks.sendGmailMessage).not.toHaveBeenCalled();
+    expect(mocks.markEmailAsSent).not.toHaveBeenCalled();
   });
 });

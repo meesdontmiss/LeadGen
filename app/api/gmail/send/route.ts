@@ -39,8 +39,8 @@ function getLeadEmailSubject(lead: NonNullable<Awaited<ReturnType<typeof getLead
   );
 }
 
-function canSendProposal(lead: NonNullable<Awaited<ReturnType<typeof getLeadRecord>>>) {
-  return lead.company.status === "draft_ready" && lead.latestEmail.status === "approved";
+function canSendInitialDraft(lead: NonNullable<Awaited<ReturnType<typeof getLeadRecord>>>) {
+  return lead.latestEmail.status === "draft" || lead.latestEmail.status === "approved";
 }
 
 function buildAutoFollowUpBody(
@@ -80,12 +80,18 @@ export async function POST(request: Request) {
     }
 
     if (body.action === "send_draft") {
-      if (!canSendProposal(lead)) {
+      if (!canSendInitialDraft(lead)) {
         return Response.json(
           {
             error:
-              "Proposal is pending approval. Approve it first (Queue for approval) before sending.",
+              "Latest proposal is not in draft state. Use follow-up send for active threads.",
           },
+          { status: 400 },
+        );
+      }
+      if (!lead.contact.email) {
+        return Response.json(
+          { error: "Cannot send draft because no contact email is available." },
           { status: 400 },
         );
       }
