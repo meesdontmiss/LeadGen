@@ -18,6 +18,27 @@ function encodeMessage(raw: string) {
     .replace(/=+$/, "");
 }
 
+function sanitizeHeaderValue(value: string) {
+  return value.replace(/[\r\n]+/g, " ").trim();
+}
+
+function formatFromHeader({
+  email,
+  displayName,
+}: {
+  email: string;
+  displayName?: string | null;
+}) {
+  const safeEmail = sanitizeHeaderValue(email);
+  const safeDisplayName = displayName ? sanitizeHeaderValue(displayName) : "";
+
+  if (!safeDisplayName) {
+    return safeEmail;
+  }
+
+  return `"${safeDisplayName.replace(/"/g, '\\"')}" <${safeEmail}>`;
+}
+
 function decodeBase64Url(value: string) {
   return Buffer.from(
     value.replace(/-/g, "+").replace(/_/g, "/"),
@@ -117,17 +138,20 @@ function buildRawMessage({
   to,
   subject,
   body,
+  from,
   inReplyTo,
   references,
 }: {
   to: string;
   subject: string;
   body: string;
+  from?: string | null;
   inReplyTo?: string | null;
   references?: string | null;
 }) {
   return [
     `To: ${to}`,
+    ...(from ? [`From: ${from}`] : []),
     `Subject: ${subject}`,
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=utf-8",
@@ -183,6 +207,11 @@ export async function createGmailDraft({
   body: string;
 }) {
   const gmail = await getAuthorizedGmail();
+  const mailboxEmail = await getMailboxEmail(gmail);
+  const from = formatFromHeader({
+    email: mailboxEmail,
+    displayName: env.GMAIL_SENDER_NAME,
+  });
 
   try {
     const response = await gmail.users.drafts.create({
@@ -194,6 +223,7 @@ export async function createGmailDraft({
               to,
               subject,
               body,
+              from,
             }),
           ),
         },
@@ -227,6 +257,11 @@ export async function sendGmailMessage({
   references?: string | null;
 }) {
   const gmail = await getAuthorizedGmail();
+  const mailboxEmail = await getMailboxEmail(gmail);
+  const from = formatFromHeader({
+    email: mailboxEmail,
+    displayName: env.GMAIL_SENDER_NAME,
+  });
 
   try {
     const response = await gmail.users.messages.send({
@@ -237,6 +272,7 @@ export async function sendGmailMessage({
             to,
             subject,
             body,
+            from,
             inReplyTo,
             references,
           }),
@@ -276,7 +312,7 @@ export async function getGmailThread({
   contactEmail: string;
 }) {
   const gmail = await getAuthorizedGmail();
-  const mailboxEmail = await getMailboxEmail(gmail);
+  const mailboxEmail = (await getMailboxEmail(gmail)).toLowerCase();
   const resolvedThreadId =
     threadId || (await findThreadIdByContactEmail(gmail, contactEmail));
 
