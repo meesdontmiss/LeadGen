@@ -915,7 +915,8 @@ export async function persistGmailDraftMetadata({
           ...existing.metadata,
           gmailMessageId: messageId,
         },
-        status: "approved",
+        // Draft creation should not auto-approve sending.
+        status: "draft",
       })
       .eq("id", emailId);
 

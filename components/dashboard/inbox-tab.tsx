@@ -34,6 +34,10 @@ type SendState = {
   success: string | null;
 };
 
+function isProposalPending(status: LeadRecord["latestEmail"]["status"]) {
+  return status === "draft" || status === "approved";
+}
+
 function emptyThreadState(): ThreadState {
   return {
     loading: false,
@@ -63,7 +67,7 @@ export function InboxTab({ leads }: { leads: LeadRecord[] }) {
           return ["replied", "interested", "booked", "won"].includes(lead.campaign.status);
         }
         if (filter === "sent") return lead.campaign.status === "sent";
-        if (filter === "draft") return lead.latestEmail.status === "draft";
+        if (filter === "draft") return isProposalPending(lead.latestEmail.status);
         return true;
       }),
     [filter, leads],
@@ -99,7 +103,7 @@ export function InboxTab({ leads }: { leads: LeadRecord[] }) {
       return;
     }
 
-    if (selectedLead.latestEmail.status === "draft") {
+    if (isProposalPending(selectedLead.latestEmail.status)) {
       setThreadState(emptyThreadState());
       return;
     }
@@ -158,7 +162,7 @@ export function InboxTab({ leads }: { leads: LeadRecord[] }) {
   }, [selectedLead]);
 
   async function handleRefreshThread() {
-    if (!selectedLead || selectedLead.latestEmail.status === "draft") {
+    if (!selectedLead || isProposalPending(selectedLead.latestEmail.status)) {
       return;
     }
 
@@ -290,7 +294,7 @@ export function InboxTab({ leads }: { leads: LeadRecord[] }) {
     }
   }
 
-  const draftLeads = filteredLeads.filter((lead) => lead.latestEmail.status === "draft");
+  const draftLeads = filteredLeads.filter((lead) => isProposalPending(lead.latestEmail.status));
   const repliedLeads = filteredLeads.filter((lead) =>
     ["replied", "interested", "booked", "won"].includes(lead.campaign.status),
   );
@@ -423,7 +427,7 @@ export function InboxTab({ leads }: { leads: LeadRecord[] }) {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {selectedLead.latestEmail.status !== "draft" ? (
+                  {!isProposalPending(selectedLead.latestEmail.status) ? (
                     <button
                       onClick={handleRefreshThread}
                       className="inline-flex items-center gap-2 rounded-xl border border-stone-200 px-3 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
@@ -436,7 +440,7 @@ export function InboxTab({ leads }: { leads: LeadRecord[] }) {
                       Refresh thread
                     </button>
                   ) : null}
-                  <Badge variant={selectedLead.latestEmail.status === "draft" ? "warning" : "neutral"}>
+                  <Badge variant={isProposalPending(selectedLead.latestEmail.status) ? "warning" : "neutral"}>
                     {selectedLead.latestEmail.status}
                   </Badge>
                 </div>
@@ -444,10 +448,14 @@ export function InboxTab({ leads }: { leads: LeadRecord[] }) {
             </div>
 
             <div className="flex-1 px-6 py-5">
-              {selectedLead.latestEmail.status === "draft" ? (
+              {isProposalPending(selectedLead.latestEmail.status) ? (
                 <DraftPanel
                   lead={selectedLead}
                   sendState={sendState}
+                  canSend={
+                    selectedLead.company.status === "draft_ready" &&
+                    selectedLead.latestEmail.status === "approved"
+                  }
                   onSend={handleSendDraft}
                 />
               ) : (
@@ -500,10 +508,12 @@ function InboxSummary({
 function DraftPanel({
   lead,
   sendState,
+  canSend,
   onSend,
 }: {
   lead: LeadRecord;
   sendState: SendState;
+  canSend: boolean;
   onSend: () => Promise<void>;
 }) {
   return (
@@ -523,7 +533,7 @@ function DraftPanel({
       <div className="flex items-center gap-3">
         <button
           onClick={() => void onSend()}
-          disabled={sendState.pending}
+          disabled={sendState.pending || !canSend}
           className="inline-flex items-center gap-2 rounded-xl bg-stone-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {sendState.pending ? (
@@ -531,9 +541,15 @@ function DraftPanel({
           ) : (
             <Send className="h-4 w-4" />
           )}
-          Send from Gmail
+          {canSend ? "Send from Gmail" : "Awaiting approval"}
         </button>
       </div>
+
+      {!canSend ? (
+        <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Proposal is pending approval. Use <span className="font-semibold">Queue for approval</span> first, then send.
+        </div>
+      ) : null}
 
       {sendState.error ? (
         <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">

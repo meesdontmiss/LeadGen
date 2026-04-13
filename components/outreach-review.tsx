@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, Clock, MailPlus, Send, ShieldCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +16,7 @@ export function OutreachReview({
   lead: LeadRecord;
   followUpSchedule: Array<{ label: string; dayOffset: number }>;
 }) {
+  const router = useRouter();
   const [draftState, setDraftState] = useState<{
     pending: boolean;
     message: string | null;
@@ -79,9 +81,10 @@ export function OutreachReview({
         pending: false,
         message: payload.draft?.draftId
           ? `Draft created: ${payload.draft.draftId}`
-          : "Draft created in Gmail.",
+          : "Draft created in Gmail and remains pending approval.",
         error: false,
       });
+      router.refresh();
     } catch (error) {
       setDraftState({
         pending: false,
@@ -117,9 +120,10 @@ export function OutreachReview({
 
       setQueueState({
         pending: false,
-        message: "Lead queued for approval successfully.",
+        message: "Lead approved for send.",
         error: false,
       });
+      router.refresh();
     } catch (error) {
       setQueueState({
         pending: false,
@@ -261,7 +265,7 @@ export function OutreachReview({
             ) : (
               <span className="flex items-center gap-2">
                 <Clock className="h-4 w-4" />
-                Queue for approval
+                Approve for send
               </span>
             )}
           </Button>

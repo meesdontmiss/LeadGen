@@ -35,6 +35,14 @@ function emptyActionState(): LeadActionState {
   };
 }
 
+function isInitialProposal(lead: LeadRecord) {
+  return lead.latestEmail.status === "draft" || lead.latestEmail.status === "approved";
+}
+
+function canSendInitialProposal(lead: LeadRecord) {
+  return lead.company.status === "draft_ready" && lead.latestEmail.status === "approved";
+}
+
 function toDateTimeLocalValue(value: Date) {
   const local = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
@@ -114,7 +122,7 @@ export function FollowUpsTab({ leads }: { leads: LeadRecord[] }) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          action: lead.latestEmail.status === "draft" ? "send_draft" : "follow_up",
+          action: isInitialProposal(lead) ? "send_draft" : "follow_up",
           companyId: lead.company.id,
         }),
       });
@@ -284,6 +292,9 @@ export function FollowUpsTab({ leads }: { leads: LeadRecord[] }) {
           const leadState = leadActionState[lead.company.id] ?? emptyActionState();
           const bookings = lead.campaign.bookings;
           const bookingFormOpen = activeBookingLeadId === lead.company.id;
+          const initialProposal = isInitialProposal(lead);
+          const sendDisabled =
+            leadState.pending || (initialProposal && !canSendInitialProposal(lead));
 
           return (
             <div
@@ -339,7 +350,7 @@ export function FollowUpsTab({ leads }: { leads: LeadRecord[] }) {
                   {view !== "completed" ? (
                     <button
                       onClick={() => void handleSendNow(lead)}
-                      disabled={leadState.pending}
+                      disabled={sendDisabled}
                       className="flex items-center gap-1.5 rounded-lg bg-stone-950 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {leadState.pending ? (
@@ -347,11 +358,19 @@ export function FollowUpsTab({ leads }: { leads: LeadRecord[] }) {
                       ) : (
                         <Send className="h-3.5 w-3.5" />
                       )}
-                      Send now
+                      {initialProposal && !canSendInitialProposal(lead)
+                        ? "Awaiting approval"
+                        : "Send now"}
                     </button>
                   ) : null}
                 </div>
               </div>
+
+              {initialProposal && !canSendInitialProposal(lead) ? (
+                <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Proposal is pending approval. Approve it before sending.
+                </div>
+              ) : null}
 
               <div className="mt-4 rounded-lg border border-stone-100 bg-stone-50/60 p-3">
                 <p className="text-xs font-semibold uppercase tracking-wider text-stone-500">

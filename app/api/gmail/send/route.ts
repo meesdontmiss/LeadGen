@@ -38,6 +38,10 @@ function getLeadEmailSubject(lead: NonNullable<Awaited<ReturnType<typeof getLead
   );
 }
 
+function canSendProposal(lead: NonNullable<Awaited<ReturnType<typeof getLeadRecord>>>) {
+  return lead.company.status === "draft_ready" && lead.latestEmail.status === "approved";
+}
+
 function buildAutoFollowUpBody(
   lead: NonNullable<Awaited<ReturnType<typeof getLeadRecord>>>,
 ) {
@@ -73,6 +77,16 @@ export async function POST(request: Request) {
     }
 
     if (body.action === "send_draft") {
+      if (!canSendProposal(lead)) {
+        return Response.json(
+          {
+            error:
+              "Proposal is pending approval. Approve it first (Queue for approval) before sending.",
+          },
+          { status: 400 },
+        );
+      }
+
       const subject = getLeadEmailSubject(lead);
       const composedBody = [
         lead.latestEmail.plainText,
