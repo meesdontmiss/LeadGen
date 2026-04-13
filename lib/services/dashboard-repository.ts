@@ -103,6 +103,10 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function toStringOrEmpty(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 function asBookingType(value: unknown): BookingType | null {
   return value === "call" || value === "gig" ? value : null;
 }
@@ -244,6 +248,120 @@ function mapTone(value: string): ActivityItem["tone"] {
   return "neutral";
 }
 
+function isLegacyProposalCopy(email: EmailDraft) {
+  const text = `${email.subject} ${email.subjectVariants.join(" ")} ${email.plainText}`.toLowerCase();
+  return (
+    text.includes("quick growth idea") ||
+    text.includes("i can share a concise teardown") ||
+    text.includes("if useful, i can send the short brief this week")
+  );
+}
+
+function outcomeLabel(vertical: string) {
+  const lowered = vertical.toLowerCase();
+  if (lowered.includes("interior")) return "project consultations";
+  if (lowered.includes("hair") || lowered.includes("spa")) return "appointments";
+  return "qualified consultations";
+}
+
+function offerLabel(type: Offer["type"]) {
+  switch (type) {
+    case "free_prototype_site":
+      return "conversion prototype page";
+    case "free_video_photo_concept":
+      return "video/photo concept";
+    case "free_teardown_brief":
+    default:
+      return "conversion teardown brief";
+  }
+}
+
+function buildPainPointsForLead(lead: {
+  company: Company;
+  audit: SiteAudit;
+}) {
+  const points: Array<{ weight: number; text: string }> = [];
+  const hasWebsite = Boolean(lead.company.website);
+
+  if (!hasWebsite) {
+    points.push({
+      weight: 120,
+      text: "There is no clear website conversion path in your public presence, which usually leaks intent before prospects book.",
+    });
+  } else {
+    points.push({
+      weight: 100 - lead.audit.scores.ctaQuality,
+      text: "The path from first visit to inquiry likely needs a stronger single CTA and fewer decision branches.",
+    });
+    points.push({
+      weight: 100 - lead.audit.scores.mobileQuality,
+      text: "Mobile users are likely encountering friction, and that is where most local discovery traffic begins.",
+    });
+    points.push({
+      weight: 100 - lead.audit.scores.trustSignals,
+      text: "Trust signals are likely not prominent enough early in the page flow to support conversion confidence.",
+    });
+    points.push({
+      weight: 100 - lead.audit.scores.seoBasics,
+      text: "Local-intent visibility signals likely need tightening to attract better-fit inbound demand.",
+    });
+  }
+
+  points.push({
+    weight: lead.audit.scores.presentationGap,
+    text: "Premium positioning is not yet translating into a consistently high-converting experience.",
+  });
+
+  points.sort((left, right) => right.weight - left.weight);
+  return points.slice(0, 3).map((point) => point.text);
+}
+
+function upgradeLegacyDraftCopy(lead: {
+  company: Company;
+  audit: SiteAudit;
+  offer: Offer;
+  latestEmail: EmailDraft;
+}) {
+  const location = lead.company.neighborhood
+    ? `${lead.company.neighborhood}, ${lead.company.city}`
+    : lead.company.city;
+  const outcome = outcomeLabel(lead.company.vertical);
+  const painPoints = buildPainPointsForLead(lead);
+  const offer = offerLabel(lead.offer.type);
+  const websiteReference = lead.company.website
+    ? `your site (${lead.company.website})`
+    : "your current web presence";
+
+  const subjectVariants = [
+    `${lead.company.name}: 3 specific conversion fixes this week`,
+    `Idea for ${lead.company.name}: more ${outcome} from ${location}`,
+  ];
+
+  const plainText = [
+    `Hi ${lead.company.name} team,`,
+    "",
+    `I took a first-pass look at ${websiteReference} for your ${lead.company.vertical.toLowerCase()} business in ${location}, and there is a clear opportunity to turn more local attention into ${outcome}.`,
+    "",
+    "From a practical conversion perspective, the biggest pain points are:",
+    ...painPoints.map((point, index) => `${index + 1}) ${point}`),
+    "",
+    `What I would execute for ${lead.company.name}:`,
+    `1) Clarify positioning and value above the fold so high-intent visitors know exactly why to choose your team.`,
+    `2) Simplify the inquiry path so visitors move directly into booking without friction.`,
+    `3) Build a tailored ${offer} that directly addresses your current conversion gaps.`,
+    "",
+    `If useful, I can send a tailored no-cost ${offer} for ${lead.company.name} and walk through it on a quick 15-minute call this week.`,
+    "Would Tuesday or Wednesday afternoon be better?",
+  ].join("\n");
+
+  return {
+    ...lead.latestEmail,
+    subject: subjectVariants[0],
+    subjectVariants,
+    plainText,
+  } satisfies EmailDraft;
+}
+
 export async function getDashboardData(): Promise<DashboardData> {
   const supabase = getSupabaseAdmin();
 
@@ -314,11 +432,11 @@ export async function getDashboardData(): Promise<DashboardData> {
       primaryContacts.set(companyId, {
         id: String(row.id),
         companyId,
-        fullName: String(row.full_name ?? "Unknown contact"),
-        title: String(row.title ?? "Unknown title"),
-        email: String(row.email ?? ""),
+        fullName: toStringOrEmpty(row.full_name),
+        title: toStringOrEmpty(row.title),
+        email: toStringOrEmpty(row.email),
         confidence: Number(row.confidence ?? 0),
-        source: String(row.source ?? "unknown"),
+        source: toStringOrEmpty(row.source),
         primary: Boolean(row.is_primary ?? true),
       });
     }
@@ -335,7 +453,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       latestAudits.set(companyId, {
         id: String(row.id),
         companyId,
-        capturedAt: String(row.captured_at ?? new Date().toISOString()),
+        capturedAt: toStringOrEmpty(row.captured_at),
         scores: {
           premiumFit,
           presentationGap,
@@ -356,10 +474,10 @@ export async function getDashboardData(): Promise<DashboardData> {
         formFindings: asArray<string>(row.form_summary),
         strengths: asArray<string>(row.strengths),
         weaknesses: asArray<string>(row.weaknesses),
-        hook: String(row.hook ?? ""),
+        hook: toStringOrEmpty(row.hook),
         screenshotNotes: {
-          desktop: String(row.screenshot_desktop_path ?? "Desktop capture pending"),
-          mobile: String(row.screenshot_mobile_path ?? "Mobile capture pending"),
+          desktop: toStringOrEmpty(row.screenshot_desktop_path),
+          mobile: toStringOrEmpty(row.screenshot_mobile_path),
         },
         recommendedOfferType:
           row.recommended_offer_type === "free_prototype_site" ||
@@ -383,9 +501,9 @@ export async function getDashboardData(): Promise<DashboardData> {
           row.offer_type === "free_teardown_brief"
             ? row.offer_type
             : "free_teardown_brief",
-        rationale: String(row.rationale ?? ""),
-        teaserHeadline: String(row.summary ?? "Offer summary"),
-        teaserSummary: String(row.rationale ?? ""),
+        rationale: toStringOrEmpty(row.rationale),
+        teaserHeadline: toStringOrEmpty(row.summary),
+        teaserSummary: toStringOrEmpty(row.rationale),
         homepageBrief: asArray<string>(row.homepage_brief),
         teaserJson:
           typeof row.teaser_page_json === "object" && row.teaser_page_json !== null
@@ -409,10 +527,10 @@ export async function getDashboardData(): Promise<DashboardData> {
           row.offer_type === "free_teardown_brief"
             ? row.offer_type
             : "free_teardown_brief",
-        assignedTo: String(row.assigned_to ?? "Unassigned"),
-        sendDomain: String(row.send_domain ?? "Not set"),
-        lastTouchAt: String(row.last_touch_at ?? row.started_at ?? new Date().toISOString()),
-        nextTouchAt: String(row.next_touch_at ?? row.started_at ?? new Date().toISOString()),
+        assignedTo: toStringOrEmpty(row.assigned_to),
+        sendDomain: toStringOrEmpty(row.send_domain),
+        lastTouchAt: toStringOrEmpty(row.last_touch_at ?? row.started_at),
+        nextTouchAt: toStringOrEmpty(row.next_touch_at ?? row.started_at),
         pipelineValue: Number(metadata.pipelineValue),
         followUpTouches: metadata.followUpTouches,
         bookings: metadata.bookings,
@@ -434,12 +552,12 @@ export async function getDashboardData(): Promise<DashboardData> {
         id: String(row.id),
         companyId,
         contactId: String(row.contact_id ?? ""),
-        subject: String(row.subject ?? ""),
+        subject: toStringOrEmpty(row.subject),
         status: toEmailStatus(String(row.status ?? "draft")),
         direction: row.direction === "inbound" ? "inbound" : "outbound",
         subjectVariants: asArray<string>(row.subject_variants),
-        plainText: String(row.body_text ?? ""),
-        html: String(row.body_html ?? ""),
+        plainText: toStringOrEmpty(row.body_text),
+        html: toStringOrEmpty(row.body_html),
         complianceFooter: asArray<string>(row.compliance_footer),
         gmailThreadId: typeof row.gmail_thread_id === "string" ? row.gmail_thread_id : null,
         gmailDraftId: typeof row.gmail_draft_id === "string" ? row.gmail_draft_id : null,
@@ -467,21 +585,21 @@ export async function getDashboardData(): Promise<DashboardData> {
 
         const company: Company = {
           id: companyId,
-          name: String(row.name ?? "Unnamed company"),
-          vertical: String(row.vertical ?? "Unknown vertical"),
-          neighborhood: String(row.neighborhood ?? "Unknown neighborhood"),
-          city: String(row.city ?? "Unknown city"),
-          state: String(row.state ?? "CA"),
-          domain: String(row.domain ?? ""),
-          website: String(row.website_url ?? ""),
-          phone: String(row.phone ?? ""),
-          ownerName: String(row.owner_name ?? ""),
+          name: toStringOrEmpty(row.name),
+          vertical: toStringOrEmpty(row.vertical),
+          neighborhood: toStringOrEmpty(row.neighborhood),
+          city: toStringOrEmpty(row.city),
+          state: toStringOrEmpty(row.state),
+          domain: toStringOrEmpty(row.domain),
+          website: toStringOrEmpty(row.website_url),
+          phone: toStringOrEmpty(row.phone),
+          ownerName: toStringOrEmpty(row.owner_name),
           premiumFit: Number(row.premium_fit ?? 0),
           contactability: Number(row.contactability ?? 0),
           status: toLeadStatus(String(row.lead_status ?? "new")),
-          source: String(row.source ?? "unknown"),
-          discoveredAt: String(row.created_at ?? new Date().toISOString()),
-          notes: String(row.notes ?? ""),
+          source: toStringOrEmpty(row.source),
+          discoveredAt: toStringOrEmpty(row.created_at),
+          notes: toStringOrEmpty(row.notes),
         };
 
         return {
@@ -490,7 +608,14 @@ export async function getDashboardData(): Promise<DashboardData> {
           audit,
           offer,
           campaign,
-          latestEmail,
+          latestEmail: isLegacyProposalCopy(latestEmail)
+            ? upgradeLegacyDraftCopy({
+                company,
+                audit,
+                offer,
+                latestEmail,
+              })
+            : latestEmail,
           qualifies: qualifiesForOutreach({
             premiumFit: company.premiumFit,
             presentationGap: audit.scores.presentationGap,
@@ -517,7 +642,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       complaintRate: Number(row.complaint_rate ?? 0),
       dailyVolume: Number(row.daily_volume ?? 0),
       maxDailyVolume: Number(row.max_daily_volume ?? 0),
-      lastWarmupAt: String(row.last_warmup_at ?? new Date().toISOString()),
+      lastWarmupAt: toStringOrEmpty(row.last_warmup_at ?? row.updated_at ?? row.created_at),
       notes: asArray<string>(row.notes),
     }));
 
@@ -537,15 +662,15 @@ export async function getDashboardData(): Promise<DashboardData> {
           : "attention",
       queueDepth: Number(row.queue_depth ?? 0),
       throughputPerHour: Number(row.throughput_per_hour ?? 0),
-      lastRunAt: String(row.last_run_at ?? new Date().toISOString()),
-      nextAction: String(row.next_action ?? ""),
+      lastRunAt: toStringOrEmpty(row.last_run_at ?? row.updated_at ?? row.created_at),
+      nextAction: toStringOrEmpty(row.next_action),
     }));
 
     const liveActivity: ActivityItem[] = activity.map((row) => ({
       id: String(row.id),
-      at: String(row.created_at ?? new Date().toISOString()),
+      at: toStringOrEmpty(row.created_at),
       tone: mapTone(String(row.event_type ?? "")),
-      title: String(row.event_summary ?? "Activity"),
+      title: toStringOrEmpty(row.event_summary),
       detail: JSON.stringify(row.payload ?? {}),
     }));
 

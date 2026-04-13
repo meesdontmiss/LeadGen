@@ -38,6 +38,31 @@ function getLeadEmailSubject(lead: NonNullable<Awaited<ReturnType<typeof getLead
   );
 }
 
+function buildAutoFollowUpBody(
+  lead: NonNullable<Awaited<ReturnType<typeof getLeadRecord>>>,
+) {
+  const firstName = lead.contact.fullName.split(" ")[0] || "there";
+  const serviceLabel = lead.company.vertical.toLowerCase().includes("interior")
+    ? "project consultations"
+    : lead.company.vertical.toLowerCase().includes("hair") ||
+        lead.company.vertical.toLowerCase().includes("spa")
+      ? "appointments"
+      : "qualified consultations";
+
+  return [
+    `Hi ${firstName},`,
+    "",
+    `Quick follow-up on my note about ${lead.company.name}.`,
+    "",
+    `I put together a tailored plan focused on turning more local traffic into ${serviceLabel}, with specific fixes for messaging, conversion flow, and trust signals.`,
+    "",
+    "If helpful, I can send the one-page action plan and walk through it on a short 15-minute call.",
+    "Would Tuesday or Wednesday afternoon work better on your side?",
+    "",
+    ...lead.latestEmail.complianceFooter,
+  ].join("\n");
+}
+
 export async function POST(request: Request) {
   try {
     const body = sendSchema.parse(await request.json());
@@ -93,17 +118,7 @@ export async function POST(request: Request) {
 
       const baseSubject = headers.subject || getLeadEmailSubject(lead);
       const subject = /^re:/i.test(baseSubject) ? baseSubject : `Re: ${baseSubject}`;
-      const generatedFollowUpBody =
-        lead.latestEmail.direction === "outbound" && lead.latestEmail.plainText.trim()
-          ? lead.latestEmail.plainText.trim()
-          : [
-              `Hi ${lead.contact.fullName.split(" ")[0] || "there"},`,
-              "",
-              `Quick follow-up on the note I sent about ${lead.company.name}.`,
-              "Happy to share specifics and next steps if helpful.",
-              "",
-              ...lead.latestEmail.complianceFooter,
-            ].join("\n");
+      const generatedFollowUpBody = buildAutoFollowUpBody(lead);
 
       const composedBody = body.body?.trim() || generatedFollowUpBody;
 

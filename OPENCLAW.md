@@ -22,6 +22,8 @@ Authorization:
 - Set `CRON_SECRET` in your deployment env
 - The route accepts `Authorization: Bearer <CRON_SECRET>` (Vercel cron default)
 - It also accepts `OPENCLAW_WEBHOOK_SECRET` for manual external triggers
+- Scan frequency is hard-limited server-side to one run every 24 hours
+- Manual override is available with `?force=true` or header `x-openclaw-force: true`
 
 Optional tuning:
 
@@ -30,7 +32,7 @@ OPENCLAW_DAILY_SCAN_MAX_PER_VERTICAL=30
 OPENCLAW_DISCOVERY_BBOX=33.70,-118.67,34.35,-118.10
 ```
 
-The scan discovers real businesses in Los Angeles via OpenStreetMap Overpass, inserts new lead records into Supabase, and sends an operator summary email to `OPENCLAW_ALERT_EMAIL` when configured.
+The scan discovers real businesses in Los Angeles via OpenStreetMap Overpass, enriches websites for job-listing signals and discoverable emails, inserts new lead records into Supabase, and sends an operator summary email to `OPENCLAW_ALERT_EMAIL` when configured.
 
 ## Current Runtime Behavior
 

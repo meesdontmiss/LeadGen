@@ -13,13 +13,27 @@ function isAuthorized(request: Request) {
   return Boolean(provided && validSecrets.some((secret) => secret === provided));
 }
 
+function isTruthy(value: string | null) {
+  if (!value) return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+function shouldForceRun(request: Request) {
+  const url = new URL(request.url);
+  return (
+    isTruthy(url.searchParams.get("force")) ||
+    isTruthy(request.headers.get("x-openclaw-force"))
+  );
+}
+
 async function handleScan(request: Request) {
   if (!isAuthorized(request)) {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 
   try {
-    const result = await runLosAngelesDailyDiscoveryScan();
+    const force = shouldForceRun(request);
+    const result = await runLosAngelesDailyDiscoveryScan({ force });
     return Response.json({
       ok: true,
       ...result,
