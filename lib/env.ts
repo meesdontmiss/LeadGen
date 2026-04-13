@@ -49,6 +49,7 @@ const envSchema = z.object({
   OPENCLAW_DISCOVERY_BBOX: optionalString(),
   OPENCLAW_DAILY_SCAN_MAX_PER_VERTICAL: optionalInteger(),
   SENDING_DOMAIN: optionalString(),
+  BUSINESS_MAILING_ADDRESS: optionalString(),
   PHYSICAL_ADDRESS: optionalString(),
 });
 
@@ -69,6 +70,7 @@ const parsedEnv = envSchema.parse({
   OPENCLAW_DAILY_SCAN_MAX_PER_VERTICAL:
     process.env.OPENCLAW_DAILY_SCAN_MAX_PER_VERTICAL,
   SENDING_DOMAIN: process.env.SENDING_DOMAIN,
+  BUSINESS_MAILING_ADDRESS: process.env.BUSINESS_MAILING_ADDRESS,
   PHYSICAL_ADDRESS: process.env.PHYSICAL_ADDRESS,
 });
 

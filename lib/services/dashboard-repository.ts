@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
+import { sanitizeFooterForOutbound } from "@/lib/compliance";
 import { calculateOutreachScore, qualifiesForOutreach } from "@/lib/scoring";
 import { env, hasRuntimeGmailEnv, hasSupabaseServerEnv } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/services/supabase-admin";
@@ -333,25 +334,26 @@ function upgradeLegacyDraftCopy(lead: {
     : "your current web presence";
 
   const subjectVariants = [
-    `${lead.company.name}: 3 specific conversion fixes this week`,
-    `Idea for ${lead.company.name}: more ${outcome} from ${location}`,
+    `${lead.company.name}: quick idea to increase ${outcome}`,
+    `${lead.company.name} - 3 concrete fixes for ${location} traffic`,
   ];
 
   const plainText = [
     `Hi ${lead.company.name} team,`,
     "",
-    `I took a first-pass look at ${websiteReference} for your ${lead.company.vertical.toLowerCase()} business in ${location}, and there is a clear opportunity to turn more local attention into ${outcome}.`,
+    `I reviewed ${websiteReference} for your ${lead.company.vertical.toLowerCase()} business in ${location}. You are getting attention, but parts of the journey likely make potential customers drop before they book.`,
     "",
-    "From a practical conversion perspective, the biggest pain points are:",
-    ...painPoints.map((point, index) => `${index + 1}) ${point}`),
+    "What stood out:",
+    ...painPoints.map((point) => `- ${point}`),
     "",
-    `What I would execute for ${lead.company.name}:`,
+    `What I would execute first for ${lead.company.name}:`,
     `1) Clarify positioning and value above the fold so high-intent visitors know exactly why to choose your team.`,
     `2) Simplify the inquiry path so visitors move directly into booking without friction.`,
     `3) Build a tailored ${offer} that directly addresses your current conversion gaps.`,
     "",
-    `If useful, I can send a tailored no-cost ${offer} for ${lead.company.name} and walk through it on a quick 15-minute call this week.`,
-    "Would Tuesday or Wednesday afternoon be better?",
+    `If helpful, I can send a tailored no-cost ${offer} built around your current pages and local positioning.`,
+    "Open to a quick 15-minute call this week to review it together?",
+    "Tuesday or Wednesday afternoon both work on my side.",
   ].join("\n");
 
   return {
@@ -558,7 +560,9 @@ export async function getDashboardData(): Promise<DashboardData> {
         subjectVariants: asArray<string>(row.subject_variants),
         plainText: toStringOrEmpty(row.body_text),
         html: toStringOrEmpty(row.body_html),
-        complianceFooter: asArray<string>(row.compliance_footer),
+        complianceFooter: sanitizeFooterForOutbound(
+          asArray<string>(row.compliance_footer),
+        ),
         gmailThreadId: typeof row.gmail_thread_id === "string" ? row.gmail_thread_id : null,
         gmailDraftId: typeof row.gmail_draft_id === "string" ? row.gmail_draft_id : null,
         sentAt: typeof row.sent_at === "string" ? row.sent_at : null,

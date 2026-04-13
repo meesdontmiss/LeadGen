@@ -455,6 +455,25 @@ function buildSolutionSteps(
   ];
 }
 
+const AI_STYLE_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
+  { pattern: /\bi hope this email finds you well\b/gi, replacement: "" },
+  { pattern: /\bleverage\b/gi, replacement: "use" },
+  { pattern: /\bunlock\b/gi, replacement: "capture" },
+  { pattern: /\bsynergy\b/gi, replacement: "alignment" },
+  { pattern: /\brevolutionize\b/gi, replacement: "improve" },
+  { pattern: /\bgame[\s-]?changing\b/gi, replacement: "high-impact" },
+  { pattern: /\bseamless\b/gi, replacement: "simple" },
+  { pattern: /\bdelve into\b/gi, replacement: "review" },
+];
+
+function normalizeSalesCopyTone(text: string) {
+  let normalized = text;
+  for (const rule of AI_STYLE_REPLACEMENTS) {
+    normalized = normalized.replace(rule.pattern, rule.replacement);
+  }
+  return normalized.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function buildInitialProposal(
   candidate: CandidateLead,
   offerType: ReturnType<typeof recommendOfferType>,
@@ -469,26 +488,33 @@ function buildInitialProposal(
   const websiteReference = candidate.website
     ? `your site (${candidate.website})`
     : "your current web presence";
+  const discoveredEmailNote =
+    candidate.discoveredEmails.length > 0
+      ? "I also found a direct contact path on your site, so routing inquiries can be tightened quickly."
+      : "I could not find a clear direct contact flow from the public pages, which can reduce conversion intent.";
+  const greetingTarget = candidate.name.includes(" ") ? candidate.name : `${candidate.name} team`;
 
   const subjectVariants = [
-    `${candidate.name}: 3 specific conversion fixes this week`,
-    `Idea for ${candidate.name}: more ${outcome} from ${location}`,
+    `${candidate.name}: quick idea to increase ${outcome}`,
+    `${candidate.name} - 3 concrete fixes for ${location} traffic`,
   ];
 
-  const plainText = [
-    `Hi ${candidate.name} team,`,
+  const plainText = normalizeSalesCopyTone([
+    `Hi ${greetingTarget},`,
     "",
-    `I took a first-pass look at ${websiteReference} for your ${candidate.vertical.toLowerCase()} business in ${location}, and there is a clear opportunity to turn more local attention into ${outcome}.`,
+    `I reviewed ${websiteReference} for your ${candidate.vertical.toLowerCase()} business in ${location}. You are getting attention, but parts of the journey likely make potential customers drop before they book.`,
     "",
-    "From a practical conversion perspective, the biggest pain points are:",
-    ...painPoints.map((point, index) => `${index + 1}) ${point}`),
+    "What stood out:",
+    ...painPoints.map((point) => `- ${point}`),
+    `- ${discoveredEmailNote}`,
     "",
-    `What I would execute for ${candidate.name}:`,
+    `What I would execute first for ${candidate.name}:`,
     ...solutionSteps.map((step, index) => `${index + 1}) ${step}`),
     "",
-    `If useful, I can send a tailored no-cost ${offer} for ${candidate.name} and walk through it with you on a quick 15-minute call this week.`,
-    "Would Tuesday or Wednesday afternoon be better?",
-  ].join("\n");
+    `If helpful, I can send a tailored no-cost ${offer} built around your current pages and local positioning.`,
+    "Open to a quick 15-minute call this week to review it together?",
+    "Tuesday or Wednesday afternoon both work on my side.",
+  ].join("\n"));
 
   return {
     subjectVariants,

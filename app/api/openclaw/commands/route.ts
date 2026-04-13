@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { sanitizeFooterForOutbound } from "@/lib/compliance";
 import { env } from "@/lib/env";
 import { createGmailDraft } from "@/lib/services/gmail";
 import {
@@ -69,9 +70,11 @@ export async function POST(request: Request) {
       to: lead.contact.email,
       subject:
         lead.latestEmail.subjectVariants[0] ?? `${lead.company.name} outreach idea`,
-      body: [lead.latestEmail.plainText, "", ...lead.latestEmail.complianceFooter].join(
-        "\n",
-      ),
+      body: [
+        lead.latestEmail.plainText,
+        "",
+        ...sanitizeFooterForOutbound(lead.latestEmail.complianceFooter),
+      ].join("\n"),
     });
 
     await persistGmailDraftMetadata({

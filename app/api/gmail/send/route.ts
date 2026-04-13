@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { sanitizeFooterForOutbound } from "@/lib/compliance";
 import {
   createReplyRecord,
   getLeadRecord,
@@ -53,6 +54,8 @@ function buildAutoFollowUpBody(
       ? "appointments"
       : "qualified consultations";
 
+  const footer = sanitizeFooterForOutbound(lead.latestEmail.complianceFooter);
+
   return [
     `Hi ${firstName},`,
     "",
@@ -63,7 +66,7 @@ function buildAutoFollowUpBody(
     "If helpful, I can send the one-page action plan and walk through it on a short 15-minute call.",
     "Would Tuesday or Wednesday afternoon work better on your side?",
     "",
-    ...lead.latestEmail.complianceFooter,
+    ...footer,
   ].join("\n");
 }
 
@@ -88,10 +91,11 @@ export async function POST(request: Request) {
       }
 
       const subject = getLeadEmailSubject(lead);
+      const footer = sanitizeFooterForOutbound(lead.latestEmail.complianceFooter);
       const composedBody = [
         lead.latestEmail.plainText,
         "",
-        ...lead.latestEmail.complianceFooter,
+        ...footer,
       ].join("\n");
 
       const sent = await sendGmailMessage({

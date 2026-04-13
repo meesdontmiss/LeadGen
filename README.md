@@ -62,9 +62,11 @@ Then open `http://localhost:3000`.
 - `CRON_SECRET` (required for daily Vercel cron authorization)
 - `OPENCLAW_DAILY_SCAN_MAX_PER_VERTICAL` (optional; default `30`)
 - `OPENCLAW_DISCOVERY_BBOX` (optional; defaults to Los Angeles bounds)
+- `BUSINESS_MAILING_ADDRESS` (optional; if set, added to outbound compliance footer)
 
 ## Notes
 
 - Discovery ingestion, Playwright audits, and follow-up workers are still separate backend workstreams.
 - First-touch sends are intentionally modeled as human-approval-first.
 - The Gmail connector available to the agent is separate from the app runtime. The app uses Google OAuth env, not the connector tools.
+- `PHYSICAL_ADDRESS` is legacy and no longer used in outbound email composition.

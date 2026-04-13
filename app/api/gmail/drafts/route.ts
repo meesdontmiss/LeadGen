@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { sanitizeFooterForOutbound } from "@/lib/compliance";
 import { createGmailDraft } from "@/lib/services/gmail";
 import {
   getLeadRecord,
@@ -25,10 +26,11 @@ export async function POST(request: Request) {
     const draft = await createGmailDraft({
       to: lead.contact.email,
       subject,
+      // Always sanitize persisted footer content before external send.
       body: [
         lead.latestEmail.plainText,
         "",
-        ...lead.latestEmail.complianceFooter,
+        ...sanitizeFooterForOutbound(lead.latestEmail.complianceFooter),
       ].join("\n"),
     });
 
