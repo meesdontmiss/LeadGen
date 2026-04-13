@@ -8,6 +8,7 @@ const PUBLIC_ROUTES = [
   "/api/logout",
   "/api/health",
   "/api/unsubscribe",
+  "/api/openclaw/discovery/daily",
   "/",
 ];
 

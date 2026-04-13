@@ -42,6 +42,9 @@ export async function POST(request: Request) {
       const data = await getDashboardData();
       return Response.json({
         integrations: data.integrations,
+        notifications: {
+          leadReplyAlertsTo: env.OPENCLAW_ALERT_EMAIL ?? null,
+        },
         summary: data.summary,
         topLeads: data.leads.slice(0, 5).map((lead) => ({
           companyId: lead.company.id,

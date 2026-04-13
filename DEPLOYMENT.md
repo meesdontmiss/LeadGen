@@ -54,6 +54,8 @@ GOOGLE_REDIRECT_URI=https://developers.google.com/oauthplayground
 GMAIL_REFRESH_TOKEN=<your-refresh-token>
 
 OPENCLAW_WEBHOOK_SECRET=<your-webhook-secret>
+CRON_SECRET=<your-cron-secret>
+OPENCLAW_ALERT_EMAIL=meesdontmiss@gmail.com
 
 # IMPORTANT: Set these for production
 OPERATOR_PASSWORD=<your-secure-password>

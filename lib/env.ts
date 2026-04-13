@@ -20,6 +20,19 @@ const optionalUrl = () =>
     z.string().url().optional(),
   );
 
+const optionalInteger = () =>
+  z.preprocess(
+    (value) => {
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      if (typeof value !== "string") return value;
+      const trimmed = value.trim();
+      if (trimmed.length === 0) return undefined;
+      const parsed = Number.parseInt(trimmed, 10);
+      return Number.isFinite(parsed) ? parsed : value;
+    },
+    z.number().int().min(1).max(500).optional(),
+  );
+
 const envSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: optionalUrl(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: optionalString(),
@@ -30,7 +43,11 @@ const envSchema = z.object({
   GOOGLE_REDIRECT_URI: optionalUrl(),
   GMAIL_REFRESH_TOKEN: optionalString(),
   GMAIL_SENDER_NAME: optionalString(),
+  CRON_SECRET: optionalString(),
   OPENCLAW_WEBHOOK_SECRET: optionalString(),
+  OPENCLAW_ALERT_EMAIL: optionalString(),
+  OPENCLAW_DISCOVERY_BBOX: optionalString(),
+  OPENCLAW_DAILY_SCAN_MAX_PER_VERTICAL: optionalInteger(),
   SENDING_DOMAIN: optionalString(),
   PHYSICAL_ADDRESS: optionalString(),
 });
@@ -45,7 +62,12 @@ const parsedEnv = envSchema.parse({
   GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
   GMAIL_REFRESH_TOKEN: process.env.GMAIL_REFRESH_TOKEN,
   GMAIL_SENDER_NAME: process.env.GMAIL_SENDER_NAME,
+  CRON_SECRET: process.env.CRON_SECRET,
   OPENCLAW_WEBHOOK_SECRET: process.env.OPENCLAW_WEBHOOK_SECRET,
+  OPENCLAW_ALERT_EMAIL: process.env.OPENCLAW_ALERT_EMAIL,
+  OPENCLAW_DISCOVERY_BBOX: process.env.OPENCLAW_DISCOVERY_BBOX,
+  OPENCLAW_DAILY_SCAN_MAX_PER_VERTICAL:
+    process.env.OPENCLAW_DAILY_SCAN_MAX_PER_VERTICAL,
   SENDING_DOMAIN: process.env.SENDING_DOMAIN,
   PHYSICAL_ADDRESS: process.env.PHYSICAL_ADDRESS,
 });

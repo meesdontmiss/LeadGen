@@ -58,6 +58,10 @@ Then open `http://localhost:3000`.
 - `GOOGLE_REDIRECT_URI`
 - `GMAIL_REFRESH_TOKEN`
 - `OPENCLAW_WEBHOOK_SECRET`
+- `OPENCLAW_ALERT_EMAIL` (recommended; operator notifications destination)
+- `CRON_SECRET` (required for daily Vercel cron authorization)
+- `OPENCLAW_DAILY_SCAN_MAX_PER_VERTICAL` (optional; default `30`)
+- `OPENCLAW_DISCOVERY_BBOX` (optional; defaults to Los Angeles bounds)
 
 ## Notes
 
