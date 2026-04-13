@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Filter, Mail, Phone, MapPin, X, Send, Edit3, Eye, ArrowRight, Globe, Check, AlertCircle } from "lucide-react";
+import { Search, Filter, Mail, Phone, MapPin, X, Send, Edit3, Eye, ArrowRight, Globe, Check, AlertCircle, Loader2 } from "lucide-react";
 import type { LeadRecord } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 
@@ -18,6 +18,9 @@ export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRe
   const [editedBody, setEditedBody] = useState("");
   const [actionBusy, setActionBusy] = useState<"draft" | "send" | null>(null);
   const [actionResult, setActionResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkActionResult, setBulkActionResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const filteredLeads = leads.filter((lead) => {
     const matchesSearch =
@@ -39,6 +42,13 @@ export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRe
   });
 
   const statuses = Array.from(new Set(leads.map((l) => l.company.status)));
+  const visibleDraftIds = filteredLeads
+    .filter((lead) => lead.latestEmail.status === "draft")
+    .map((lead) => lead.company.id);
+  const selectedVisibleDraftIds = visibleDraftIds.filter((id) => selectedDraftIds.includes(id));
+  const allVisibleDraftsSelected =
+    visibleDraftIds.length > 0 &&
+    selectedVisibleDraftIds.length === visibleDraftIds.length;
 
   const openLeadPanel = useCallback((lead: LeadRecord) => {
     setSelectedLead(lead);
@@ -103,6 +113,69 @@ export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRe
     }
   }
 
+  function toggleDraftSelection(companyId: string, checked: boolean) {
+    setSelectedDraftIds((current) => {
+      if (checked) {
+        if (current.includes(companyId)) return current;
+        return [...current, companyId];
+      }
+      return current.filter((id) => id !== companyId);
+    });
+  }
+
+  function handleToggleSelectAllDrafts() {
+    setBulkActionResult(null);
+    setSelectedDraftIds((current) => {
+      if (allVisibleDraftsSelected) {
+        return current.filter((id) => !visibleDraftIds.includes(id));
+      }
+
+      const merged = new Set([...current, ...visibleDraftIds]);
+      return [...merged];
+    });
+  }
+
+  async function handleBulkAutoApprove() {
+    if (selectedDraftIds.length === 0) return;
+
+    setBulkBusy(true);
+    setBulkActionResult(null);
+    try {
+      const res = await fetch("/api/leads/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "auto_approve_selected",
+          companyIds: selectedDraftIds,
+        }),
+      });
+      const data = (await res.json()) as { message?: string; error?: string; approvedCount?: number; selectedCount?: number };
+
+      if (res.ok) {
+        setBulkActionResult({
+          ok: true,
+          message:
+            data.message ??
+            `Auto-approved ${data.approvedCount ?? 0} of ${data.selectedCount ?? selectedDraftIds.length} selected drafts.`,
+        });
+        setSelectedDraftIds([]);
+        router.refresh();
+      } else {
+        setBulkActionResult({
+          ok: false,
+          message: data.error || "Failed to auto-approve selected drafts",
+        });
+      }
+    } catch {
+      setBulkActionResult({
+        ok: false,
+        message: "Network error while auto-approving selected drafts",
+      });
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   return (
     <div className="rounded-2xl border border-stone-200 bg-white shadow-sm">
       {/* Filters */}
@@ -138,6 +211,31 @@ export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRe
           Showing <span className="font-semibold text-stone-950">{filteredLeads.length}</span> of{" "}
           {leads.length} leads
         </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleToggleSelectAllDrafts}
+            disabled={visibleDraftIds.length === 0 || bulkBusy}
+            className="rounded-lg border border-stone-300 px-3 py-1.5 text-xs font-semibold text-stone-700 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {allVisibleDraftsSelected ? "Clear Selection" : "Select All Drafts"}
+          </button>
+          <button
+            onClick={() => void handleBulkAutoApprove()}
+            disabled={bulkBusy || selectedDraftIds.length === 0}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            Auto-approve Selected Drafts
+          </button>
+          <span className="text-xs text-stone-600">
+            {selectedDraftIds.length} draft{selectedDraftIds.length === 1 ? "" : "s"} selected
+          </span>
+        </div>
+        {bulkActionResult ? (
+          <div className={`mt-3 rounded-lg px-3 py-2 text-xs font-medium ${bulkActionResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+            {bulkActionResult.message}
+          </div>
+        ) : null}
       </div>
 
       {/* Leads Table */}
@@ -145,6 +243,16 @@ export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRe
         <table className="w-full">
           <thead className="bg-stone-50">
             <tr>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-stone-600">
+                <input
+                  type="checkbox"
+                  checked={allVisibleDraftsSelected}
+                  onChange={handleToggleSelectAllDrafts}
+                  disabled={visibleDraftIds.length === 0 || bulkBusy}
+                  aria-label="Select all visible draft leads"
+                  className="h-4 w-4 rounded border-stone-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+                />
+              </th>
               <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-stone-600">
                 Company
               </th>
@@ -175,6 +283,19 @@ export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRe
                 className="transition-colors hover:bg-stone-50/50 cursor-pointer"
                 onClick={() => openLeadPanel(lead)}
               >
+                <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                  {lead.latestEmail.status === "draft" ? (
+                    <input
+                      type="checkbox"
+                      checked={selectedDraftIds.includes(lead.company.id)}
+                      onChange={(e) => toggleDraftSelection(lead.company.id, e.target.checked)}
+                      aria-label={`Select draft for ${lead.company.name}`}
+                      className="h-4 w-4 rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  ) : (
+                    <span className="text-xs text-stone-400">-</span>
+                  )}
+                </td>
                 <td className="px-5 py-4">
                   <div>
                     <p className="font-semibold text-stone-950">{lead.company.name}</p>
