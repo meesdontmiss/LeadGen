@@ -361,12 +361,25 @@ type ProposalBlueprint = {
 function offerLabel(offerType: ReturnType<typeof recommendOfferType>) {
   switch (offerType) {
     case "free_prototype_site":
-      return "conversion prototype page";
+      return "conversion-focused landing page mockup";
     case "free_video_photo_concept":
-      return "video/photo concept";
+      return "visual content strategy";
     case "free_teardown_brief":
     default:
-      return "conversion teardown brief";
+      return "site conversion audit";
+  }
+}
+
+function offerDescription(offerType: ReturnType<typeof recommendOfferType>, painPoints: string[]) {
+  const topPain = painPoints[0] ?? "conversion flow";
+  switch (offerType) {
+    case "free_prototype_site":
+      return `a redesigned landing page mockup that fixes the issues above — specifically addressing how ${topPain.toLowerCase().replace(/\.$/, "")}`;
+    case "free_video_photo_concept":
+      return `a visual content plan tied to the exact trust and credibility gaps on your current site — built to directly address how ${topPain.toLowerCase().replace(/\.$/, "")}`;
+    case "free_teardown_brief":
+    default:
+      return `a prioritized action plan with the exact fixes for the issues above — starting with how ${topPain.toLowerCase().replace(/\.$/, "")}`;
   }
 }
 
@@ -423,36 +436,33 @@ function buildPainPoints(candidate: CandidateLead) {
 function buildSolutionSteps(
   candidate: CandidateLead,
   offerType: ReturnType<typeof recommendOfferType>,
+  painPoints: string[],
 ) {
-  const base = [
-    `Restructure messaging for ${candidate.name} so value, proof, and next action are clear in the first screen.`,
-    "Simplify the booking pathway so high-intent visitors move to inquiry without friction.",
-  ];
+  const steps: string[] = [];
+
+  if (candidate.ctaQuality < 60) {
+    steps.push(`Restructure ${candidate.name}'s homepage so the main call-to-action is impossible to miss in the first screen.`);
+  } else {
+    steps.push(`Sharpen ${candidate.name}'s value messaging so visitors immediately understand why you're the right choice.`);
+  }
+
+  if (candidate.mobileQuality < 60) {
+    steps.push("Fix the mobile booking flow — most of your local traffic starts on a phone and the current path has too much friction.");
+  } else {
+    steps.push("Simplify the inquiry path so high-intent visitors convert without second-guessing.");
+  }
+
+  if (candidate.trustSignals < 60) {
+    steps.push("Add visible proof above the fold — reviews, results, credentials — so trust is earned before the scroll.");
+  }
 
   if (candidate.jobListingsDetected) {
-    base.push(
-      "Separate customer conversion flow from recruiting flow so prospects never lose momentum to non-customer pathways.",
+    steps.push(
+      "Separate the customer journey from recruiting pages so sales intent isn't diluted.",
     );
   }
 
-  if (offerType === "free_prototype_site") {
-    return [
-      ...base,
-      "Deliver a conversion-focused prototype page tailored to your brand and service mix.",
-    ];
-  }
-
-  if (offerType === "free_video_photo_concept") {
-    return [
-      ...base,
-      "Provide a content concept package (short video/photo angles) tied directly to booking intent.",
-    ];
-  }
-
-  return [
-    ...base,
-    "Deliver a prioritized teardown brief with quick wins, medium-lift fixes, and expected impact.",
-  ];
+  return steps.slice(0, 3);
 }
 
 const AI_STYLE_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
@@ -491,7 +501,7 @@ function buildInitialProposal(
   const offer = offerLabel(offerType);
   const outcome = outcomeLabel(candidate.vertical);
   const painPoints = buildPainPoints(candidate);
-  const solutionSteps = buildSolutionSteps(candidate, offerType);
+  const solutionSteps = buildSolutionSteps(candidate, offerType, painPoints);
   const websiteReference = candidate.website
     ? `your site (${candidate.website})`
     : "your current web presence";
@@ -502,25 +512,28 @@ function buildInitialProposal(
   const greetingTarget = candidate.name.includes(" ") ? candidate.name : `${candidate.name} team`;
 
   const subjectVariants = [
-    `${candidate.name} — ${outcome} you're leaving on the table`,
-    `Spotted 3 quick wins for ${candidate.name}`,
-    `${candidate.name}: one change that drives more ${outcome}`,
+    `${candidate.name} — free ${offer} for your site`,
+    `Spotted 3 fixable issues on ${candidate.name}'s site`,
+    `Quick question for ${greetingTarget}`,
   ];
+
+  const freeOfferDesc = offerDescription(offerType, painPoints);
 
   const plainText = normalizeSalesCopyTone([
     `Hi ${greetingTarget},`,
     "",
-    `I took a hard look at ${websiteReference} from a buyer's perspective in ${location}. You clearly do great work — but the site is losing people before they ever reach out.`,
+    `My name's Toby — I run a small web studio in LA that helps local ${candidate.vertical.toLowerCase()} businesses turn more of their website visitors into booked ${outcome}.`,
     "",
-    `Here's what's costing you ${outcome}:`,
+    `I came across ${websiteReference} while researching ${candidate.vertical.toLowerCase()} businesses in ${location} and spent some time reviewing it from a potential customer's perspective. You clearly do quality work, so I wanted to flag a few things that are likely costing you ${outcome}:`,
+    "",
     ...painPoints.map((point) => `→ ${point}`),
     "",
-    "What I'd fix first:",
+    "Here's what I'd prioritize fixing:",
     ...solutionSteps.map((step, index) => `${index + 1}. ${step}`),
     "",
-    `I already built a custom ${offer} around your site and ${location} market. Happy to send it over — no cost, no catch.`,
+    `I went ahead and put together ${freeOfferDesc}. It's completely free — I do these for businesses I think I can genuinely help, and it's the best way to show what I mean rather than just talk about it.`,
     "",
-    "Worth a 15-min call this week?",
+    "Happy to send it over or walk through it on a quick 15-min call — whichever works better for you.",
   ].join("\n"));
 
   return {
