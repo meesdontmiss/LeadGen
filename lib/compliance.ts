@@ -5,29 +5,24 @@ import { env } from "@/lib/env";
  * to be appended to all outbound emails
  */
 export function generateComplianceFooter(): string[] {
-  const footer: string[] = [];
-
-  // Add physical address from env
   const physicalAddress = env.PHYSICAL_ADDRESS;
-  if (physicalAddress) {
-    footer.push(physicalAddress);
-  } else {
-    // Fallback warning - should be configured before production
-    console.warn("[Compliance] PHYSICAL_ADDRESS env var not configured. This is required for CAN-SPAM compliance.");
-    footer.push("[Company Name], [Address Required]");
+  if (!physicalAddress) {
+    throw new Error(
+      "PHYSICAL_ADDRESS env var is required before sending outbound email.",
+    );
   }
 
-  // Add opt-out line
-  footer.push("If timing is off, just reply 'opt out' and I will close the loop.");
-
-  return footer;
+  return [
+    physicalAddress,
+    "If timing is off, just reply 'opt out' and I will close the loop.",
+  ];
 }
 
 /**
  * Generates compliance checks for email review
  */
 export function generateComplianceChecks(footer: string[]): Array<{ label: string; passed: boolean }> {
-  const hasAddress = footer.length > 0 && footer[0] !== "[Company Name], [Address Required]";
+  const hasAddress = footer.length > 0 && footer[0].trim().length > 10;
   const hasOptOut = footer.some(line => line.toLowerCase().includes("opt out") || line.toLowerCase().includes("unsubscribe"));
 
   return [
@@ -42,11 +37,16 @@ export function generateComplianceChecks(footer: string[]): Array<{ label: strin
  * Generates an unsubscribe link for HTML emails
  */
 export function generateUnsubscribeLink(companyId: string): string {
-  // In production, this should point to a real unsubscribe endpoint
-  // For now, uses mailto: as a simple approach
-  const sendingDomain = env.SENDING_DOMAIN || "example.com";
-  const unsubscribeEmail = `unsubscribe@${sendingDomain}`;
+  const sendingDomain = env.SENDING_DOMAIN;
   
+  if (!sendingDomain) {
+    throw new Error(
+      "SENDING_DOMAIN env var is required before generating unsubscribe links.",
+    );
+  }
+  
+  const unsubscribeEmail = `unsubscribe@${sendingDomain}`;
+
   return `<a href="mailto:${unsubscribeEmail}?subject=Unsubscribe%20${companyId}">Unsubscribe</a>`;
 }
 

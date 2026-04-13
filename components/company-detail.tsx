@@ -9,6 +9,7 @@ import {
   UserRound,
 } from "lucide-react";
 
+import { BusinessPreviewImage } from "@/components/business-preview-image";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import type { DiscoveryPreset, LeadRecord } from "@/lib/types";

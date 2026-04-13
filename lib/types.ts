@@ -25,6 +25,8 @@ export type EmailStatus =
 
 export type DomainHealthStatus = "healthy" | "warming" | "attention";
 export type WorkerState = "healthy" | "busy" | "attention";
+export type BookingType = "call" | "gig";
+export type BookingStatus = "scheduled" | "completed" | "canceled";
 
 export interface Company {
   id: string;
@@ -138,6 +140,22 @@ export interface Campaign {
   lastTouchAt: string;
   nextTouchAt: string;
   pipelineValue: number;
+  followUpTouches: Array<{
+    id: string;
+    sentAt: string;
+    note: string;
+    messageId: string | null;
+  }>;
+  bookings: Array<{
+    id: string;
+    type: BookingType;
+    status: BookingStatus;
+    title: string;
+    scheduledAt: string;
+    notes: string;
+    createdAt: string;
+    updatedAt: string;
+  }>;
 }
 
 export interface DomainHealth {

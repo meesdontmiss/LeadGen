@@ -100,8 +100,6 @@ export function OutreachReview({
     });
 
     try {
-      // For now, this updates the lead status to 'draft_ready'
-      // In the future, this will trigger a workflow notification
       const response = await fetch(`/api/leads/${lead.company.id}/queue`, {
         method: "POST",
         headers: {

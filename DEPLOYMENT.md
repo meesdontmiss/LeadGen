@@ -35,10 +35,8 @@ npx supabase db push
 # Copy and run supabase/schema.sql
 ```
 
-**Seed the database:**
-```bash
-npm run seed:supabase
-```
+**Load live lead data:**
+Insert real rows into `companies`, `contacts`, `site_audits`, `offers`, `campaigns`, and `emails` in Supabase.
 
 ### 2. Environment Variables
 
@@ -96,7 +94,7 @@ npm start
 
 ### 5. Post-Deployment Checklist
 
-- [ ] Database migrated and seeded
+- [ ] Database migrated and live data loaded
 - [ ] All environment variables set
 - [ ] **Operator password changed from default**
 - [ ] PHYSICAL_ADDRESS set to real address (CAN-SPAM requirement)
@@ -114,7 +112,7 @@ npm start
 - Session-based auth with HTTP-only cookies
 - 7-day session expiry
 - All API routes protected except `/api/login`, `/api/logout`, `/api/unsubscribe`
-- Default password: `openclaw-operator-2026` (**CHANGE THIS!**)
+- Operator password must be set from `OPERATOR_PASSWORD` env
 
 ### Rate Limiting
 - Auth endpoints: 10 requests/minute

@@ -15,6 +15,7 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { DashboardData, LeadRecord } from "@/lib/types";
 import { formatCompactNumber, formatCurrency, formatPercent } from "@/lib/utils";
 import { LeadsTab } from "@/components/dashboard/leads-tab";
@@ -28,7 +29,7 @@ type TabKey = "overview" | "leads" | "inbox" | "followups" | "activity" | "domai
 interface TabConfig {
   key: TabKey;
   label: string;
-  icon: any;
+  icon: LucideIcon;
   badge?: number;
 }
 

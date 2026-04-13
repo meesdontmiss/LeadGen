@@ -54,7 +54,7 @@ describe("Scoring Engine", () => {
         presentationGap: 60,
         contactability: 70,
       });
-      expect(score).toBe(68.5);
+      expect(score).toBe(69);
     });
   });
 

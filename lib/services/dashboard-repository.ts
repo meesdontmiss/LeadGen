@@ -1,10 +1,14 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
+
 import { calculateOutreachScore, qualifiesForOutreach } from "@/lib/scoring";
 import { env, hasRuntimeGmailEnv, hasSupabaseServerEnv } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/services/supabase-admin";
 import type {
   ActivityItem,
+  BookingStatus,
+  BookingType,
   Campaign,
   Company,
   Contact,
@@ -17,31 +21,10 @@ import type {
   WorkerStatus,
 } from "@/lib/types";
 
-const DEFAULT_DISCOVERY_PRESET: DashboardData["discoveryPreset"] = {
-  neighborhoods: [
-    "Beverly Hills",
-    "West Hollywood",
-    "Brentwood",
-    "Pacific Palisades",
-    "Newport Coast",
-  ],
-  verticals: [
-    "Med spa",
-    "Cosmetic dentistry",
-    "Interior design",
-    "Landscape design",
-    "Concierge recovery",
-  ],
-  keywords: [
-    "luxury med spa",
-    "cosmetic dentist",
-    "interior designer",
-    "landscape architect",
-    "concierge recovery",
-  ],
-  domainFilters: [".com", ".co", ".studio"],
-  minimumPremiumFit: 65,
-};
+const FOLLOW_UP_DELAY_DAYS = [4, 6, 11, 14];
+
+type CampaignFollowUpTouch = Campaign["followUpTouches"][number];
+type CampaignBooking = Campaign["bookings"][number];
 
 function buildSummary(leads: LeadRecord[], domains: DomainHealth[]) {
   return {
@@ -87,7 +70,13 @@ function buildSummary(leads: LeadRecord[], domains: DomainHealth[]) {
 
 function emptyDashboardData(notes: string[]): DashboardData {
   return {
-    discoveryPreset: DEFAULT_DISCOVERY_PRESET,
+    discoveryPreset: {
+      neighborhoods: [],
+      verticals: [],
+      keywords: [],
+      domainFilters: [],
+      minimumPremiumFit: 0,
+    },
     leads: [],
     domains: [],
     workers: [],
@@ -106,6 +95,117 @@ function emptyDashboardData(notes: string[]): DashboardData {
 
 function asArray<T>(value: unknown, fallback: T[] = []) {
   return Array.isArray(value) ? (value as T[]) : fallback;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function asBookingType(value: unknown): BookingType | null {
+  return value === "call" || value === "gig" ? value : null;
+}
+
+function asBookingStatus(value: unknown): BookingStatus | null {
+  return value === "scheduled" || value === "completed" || value === "canceled"
+    ? value
+    : null;
+}
+
+function parseFollowUpTouches(value: unknown): CampaignFollowUpTouch[] {
+  return asArray<unknown>(value)
+    .map((touch) => {
+      const row = asRecord(touch);
+      const id = typeof row.id === "string" ? row.id : null;
+      const sentAt = typeof row.sentAt === "string" ? row.sentAt : null;
+      const note = typeof row.note === "string" ? row.note : "";
+      const messageId = typeof row.messageId === "string" ? row.messageId : null;
+
+      if (!id || !sentAt) return null;
+
+      return {
+        id,
+        sentAt,
+        note,
+        messageId,
+      } satisfies CampaignFollowUpTouch;
+    })
+    .filter((touch): touch is CampaignFollowUpTouch => Boolean(touch))
+    .sort((left, right) => left.sentAt.localeCompare(right.sentAt));
+}
+
+function parseBookings(value: unknown): CampaignBooking[] {
+  return asArray<unknown>(value)
+    .map((booking) => {
+      const row = asRecord(booking);
+      const type = asBookingType(row.type);
+      const status = asBookingStatus(row.status);
+      const id = typeof row.id === "string" ? row.id : null;
+      const title = typeof row.title === "string" ? row.title : "";
+      const scheduledAt = typeof row.scheduledAt === "string" ? row.scheduledAt : null;
+      const notes = typeof row.notes === "string" ? row.notes : "";
+      const createdAt = typeof row.createdAt === "string" ? row.createdAt : null;
+      const updatedAt = typeof row.updatedAt === "string" ? row.updatedAt : null;
+
+      if (!id || !type || !status || !scheduledAt || !createdAt || !updatedAt) {
+        return null;
+      }
+
+      return {
+        id,
+        type,
+        status,
+        title,
+        scheduledAt,
+        notes,
+        createdAt,
+        updatedAt,
+      } satisfies CampaignBooking;
+    })
+    .filter((booking): booking is CampaignBooking => Boolean(booking))
+    .sort((left, right) => left.scheduledAt.localeCompare(right.scheduledAt));
+}
+
+function parseCampaignMetadata(value: unknown) {
+  const metadata = asRecord(value);
+
+  return {
+    pipelineValue:
+      typeof metadata.pipelineValue === "number" ? metadata.pipelineValue : 0,
+    followUpTouches: parseFollowUpTouches(metadata.followUpTouches),
+    bookings: parseBookings(metadata.bookings),
+  };
+}
+
+function toCampaignMetadata({
+  pipelineValue,
+  followUpTouches,
+  bookings,
+  existing,
+}: {
+  pipelineValue: number;
+  followUpTouches: CampaignFollowUpTouch[];
+  bookings: CampaignBooking[];
+  existing: Record<string, unknown>;
+}) {
+  return {
+    ...existing,
+    pipelineValue,
+    followUpTouches,
+    bookings,
+  };
+}
+
+function computeNextTouchAt(sentTouches: number, sentAtIso: string) {
+  const delayIndex = Math.min(
+    Math.max(0, sentTouches - 1),
+    FOLLOW_UP_DELAY_DAYS.length - 1,
+  );
+  const delayDays = FOLLOW_UP_DELAY_DAYS[delayIndex];
+  const sentAt = new Date(sentAtIso);
+  sentAt.setUTCDate(sentAt.getUTCDate() + delayDays);
+  return sentAt.toISOString();
 }
 
 function toEmailStatus(value: string | null | undefined): EmailDraft["status"] {
@@ -298,6 +398,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     for (const row of campaigns) {
       const companyId = String(row.company_id ?? "");
       if (!companyId || campaignsByCompany.has(companyId)) continue;
+      const metadata = parseCampaignMetadata(row.metadata);
       campaignsByCompany.set(companyId, {
         id: String(row.id),
         companyId,
@@ -312,7 +413,9 @@ export async function getDashboardData(): Promise<DashboardData> {
         sendDomain: String(row.send_domain ?? "Not set"),
         lastTouchAt: String(row.last_touch_at ?? row.started_at ?? new Date().toISOString()),
         nextTouchAt: String(row.next_touch_at ?? row.started_at ?? new Date().toISOString()),
-        pipelineValue: Number((row.metadata as { pipelineValue?: number } | null)?.pipelineValue ?? 0),
+        pipelineValue: Number(metadata.pipelineValue),
+        followUpTouches: metadata.followUpTouches,
+        bookings: metadata.bookings,
       });
     }
 
@@ -447,7 +550,13 @@ export async function getDashboardData(): Promise<DashboardData> {
     }));
 
     return {
-      discoveryPreset: DEFAULT_DISCOVERY_PRESET,
+      discoveryPreset: {
+        neighborhoods: [],
+        verticals: [],
+        keywords: [],
+        domainFilters: [],
+        minimumPremiumFit: 0,
+      },
       leads,
       domains: liveDomains,
       workers: liveWorkers,
@@ -484,6 +593,60 @@ export async function getDashboardData(): Promise<DashboardData> {
 export async function getLeadRecord(companyId: string) {
   const data = await getDashboardData();
   return data.leads.find((lead) => lead.company.id === companyId) ?? null;
+}
+
+async function getCampaignRecordById(campaignId: string) {
+  const supabase = getSupabaseAdmin();
+
+  if (!supabase) {
+    throw new Error("Supabase client not configured. Cannot update campaigns.");
+  }
+
+  const { data, error } = await supabase
+    .from("campaigns")
+    .select("id, company_id, metadata")
+    .eq("id", campaignId)
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Failed to load campaign: ${error?.message ?? "Missing campaign."}`);
+  }
+
+  return {
+    supabase,
+    id: String(data.id),
+    companyId: String(data.company_id ?? ""),
+    metadata: asRecord(data.metadata),
+  };
+}
+
+async function getCampaignRecordByCompany(companyId: string) {
+  const supabase = getSupabaseAdmin();
+
+  if (!supabase) {
+    throw new Error("Supabase client not configured. Cannot update campaigns.");
+  }
+
+  const { data, error } = await supabase
+    .from("campaigns")
+    .select("id, company_id, metadata")
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new Error(
+      `Failed to load campaign for company: ${error?.message ?? "Campaign missing."}`,
+    );
+  }
+
+  return {
+    supabase,
+    id: String(data.id),
+    companyId: String(data.company_id ?? ""),
+    metadata: asRecord(data.metadata),
+  };
 }
 
 async function getEmailRecordForUpdate(emailId: string) {
@@ -544,6 +707,59 @@ async function insertActivityLog({
     event_summary: eventSummary,
     payload: payload ?? {},
   });
+}
+
+async function applyCampaignOutboundTouch({
+  supabase,
+  campaignId,
+  metadata,
+  sentAt,
+  note,
+  messageId,
+}: {
+  supabase: ReturnType<typeof getSupabaseAdmin> extends infer T
+    ? NonNullable<T>
+    : never;
+  campaignId: string;
+  metadata: Record<string, unknown>;
+  sentAt: string;
+  note: string;
+  messageId: string | null;
+}) {
+  const parsed = parseCampaignMetadata(metadata);
+  const nextTouches = [
+    ...parsed.followUpTouches,
+    {
+      id: randomUUID(),
+      sentAt,
+      note,
+      messageId,
+    } satisfies CampaignFollowUpTouch,
+  ];
+
+  const nextTouchAt = computeNextTouchAt(nextTouches.length, sentAt);
+  const metadataPayload = toCampaignMetadata({
+    pipelineValue: parsed.pipelineValue,
+    followUpTouches: nextTouches,
+    bookings: parsed.bookings,
+    existing: metadata,
+  });
+
+  const { error } = await supabase
+    .from("campaigns")
+    .update({
+      status: "sent",
+      last_touch_at: sentAt,
+      next_touch_at: nextTouchAt,
+      metadata: metadataPayload,
+    })
+    .eq("id", campaignId);
+
+  if (error) {
+    throw new Error(`Failed to update campaign after send: ${error.message}`);
+  }
+
+  return { nextTouchAt };
 }
 
 export async function persistGmailDraftMetadata({
@@ -632,17 +848,15 @@ export async function markEmailAsSent({
   }
 
   if (existing.campaignId) {
-    const { error: campaignError } = await existing.supabase
-      .from("campaigns")
-      .update({
-        status: "sent",
-        last_touch_at: sentAt,
-      })
-      .eq("id", existing.campaignId);
-
-    if (campaignError) {
-      throw new Error(`Failed to update campaign after send: ${campaignError.message}`);
-    }
+    const campaign = await getCampaignRecordById(existing.campaignId);
+    await applyCampaignOutboundTouch({
+      supabase: campaign.supabase,
+      campaignId: campaign.id,
+      metadata: campaign.metadata,
+      sentAt,
+      note: `Initial outbound send: ${subject}`,
+      messageId,
+    });
   }
 
   const { error: companyError } = await existing.supabase
@@ -717,16 +931,15 @@ export async function createReplyRecord({
     throw new Error(`Failed to persist sent reply: ${error.message}`);
   }
 
-  const { error: campaignError } = await supabase
-    .from("campaigns")
-    .update({
-      last_touch_at: sentAt,
-    })
-    .eq("id", lead.campaign.id);
-
-  if (campaignError) {
-    throw new Error(`Failed to update campaign after reply: ${campaignError.message}`);
-  }
+  const campaign = await getCampaignRecordById(lead.campaign.id);
+  await applyCampaignOutboundTouch({
+    supabase: campaign.supabase,
+    campaignId: campaign.id,
+    metadata: campaign.metadata,
+    sentAt,
+    note: `Threaded follow-up: ${subject}`,
+    messageId,
+  });
 
   await insertActivityLog({
     companyId: lead.company.id,
@@ -741,4 +954,131 @@ export async function createReplyRecord({
   });
 
   return { sentAt };
+}
+
+export async function scheduleCampaignBooking({
+  companyId,
+  type,
+  scheduledAt,
+  title,
+  notes,
+}: {
+  companyId: string;
+  type: BookingType;
+  scheduledAt: string;
+  title: string;
+  notes: string;
+}) {
+  const campaign = await getCampaignRecordByCompany(companyId);
+  const parsed = parseCampaignMetadata(campaign.metadata);
+  const now = new Date().toISOString();
+  const booking: CampaignBooking = {
+    id: randomUUID(),
+    type,
+    status: "scheduled",
+    title,
+    scheduledAt,
+    notes,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const nextBookings = [booking, ...parsed.bookings].sort((left, right) =>
+    left.scheduledAt.localeCompare(right.scheduledAt),
+  );
+  const metadataPayload = toCampaignMetadata({
+    pipelineValue: parsed.pipelineValue,
+    followUpTouches: parsed.followUpTouches,
+    bookings: nextBookings,
+    existing: campaign.metadata,
+  });
+
+  const { error: campaignError } = await campaign.supabase
+    .from("campaigns")
+    .update({
+      status: "booked",
+      metadata: metadataPayload,
+    })
+    .eq("id", campaign.id);
+
+  if (campaignError) {
+    throw new Error(`Failed to persist booking: ${campaignError.message}`);
+  }
+
+  const { error: companyError } = await campaign.supabase
+    .from("companies")
+    .update({
+      lead_status: "booked",
+    })
+    .eq("id", companyId);
+
+  if (companyError) {
+    throw new Error(`Failed to update company status for booking: ${companyError.message}`);
+  }
+
+  await insertActivityLog({
+    companyId,
+    campaignId: campaign.id,
+    actor: "operator",
+    eventType: "booking_scheduled",
+    eventSummary: `Scheduled ${type}: ${title}`,
+    payload: {
+      bookingId: booking.id,
+      type,
+      scheduledAt,
+    },
+  });
+
+  return booking;
+}
+
+export async function updateCampaignBookingStatus({
+  companyId,
+  bookingId,
+  status,
+}: {
+  companyId: string;
+  bookingId: string;
+  status: BookingStatus;
+}) {
+  const campaign = await getCampaignRecordByCompany(companyId);
+  const parsed = parseCampaignMetadata(campaign.metadata);
+  const nextBookings = parsed.bookings.map((booking) =>
+    booking.id === bookingId
+      ? { ...booking, status, updatedAt: new Date().toISOString() }
+      : booking,
+  );
+
+  if (!nextBookings.some((booking) => booking.id === bookingId)) {
+    throw new Error("Booking not found for this campaign.");
+  }
+
+  const metadataPayload = toCampaignMetadata({
+    pipelineValue: parsed.pipelineValue,
+    followUpTouches: parsed.followUpTouches,
+    bookings: nextBookings,
+    existing: campaign.metadata,
+  });
+
+  const { error } = await campaign.supabase
+    .from("campaigns")
+    .update({
+      metadata: metadataPayload,
+    })
+    .eq("id", campaign.id);
+
+  if (error) {
+    throw new Error(`Failed to update booking: ${error.message}`);
+  }
+
+  await insertActivityLog({
+    companyId,
+    campaignId: campaign.id,
+    actor: "operator",
+    eventType: "booking_status_updated",
+    eventSummary: `Booking ${bookingId} marked ${status}`,
+    payload: { bookingId, status },
+  });
+
+  return { bookingId, status };
 }

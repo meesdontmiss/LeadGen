@@ -18,9 +18,16 @@ const sendReplySchema = z.object({
   body: z.string().trim().min(1, "Reply body is required."),
 });
 
+const sendFollowUpSchema = z.object({
+  action: z.literal("follow_up"),
+  companyId: z.string().min(1),
+  body: z.string().trim().optional(),
+});
+
 const sendSchema = z.discriminatedUnion("action", [
   sendDraftSchema,
   sendReplySchema,
+  sendFollowUpSchema,
 ]);
 
 function getLeadEmailSubject(lead: NonNullable<Awaited<ReturnType<typeof getLeadRecord>>>) {
@@ -57,6 +64,67 @@ export async function POST(request: Request) {
 
       await markEmailAsSent({
         emailId: lead.latestEmail.id,
+        subject,
+        bodyText: composedBody,
+        threadId: sent.threadId,
+        messageId: sent.messageId,
+      });
+
+      return Response.json({
+        ok: true,
+        action: body.action,
+        companyId: body.companyId,
+        sent,
+      });
+    }
+
+    if (body.action === "follow_up") {
+      const headers = await getReplyHeaders({
+        threadId: lead.latestEmail.gmailThreadId,
+        contactEmail: lead.contact.email,
+      });
+
+      if (!headers.threadId) {
+        return Response.json(
+          { error: "Cannot send follow-up because no Gmail thread exists yet." },
+          { status: 400 },
+        );
+      }
+
+      const baseSubject = headers.subject || getLeadEmailSubject(lead);
+      const subject = /^re:/i.test(baseSubject) ? baseSubject : `Re: ${baseSubject}`;
+      const generatedFollowUpBody =
+        lead.latestEmail.direction === "outbound" && lead.latestEmail.plainText.trim()
+          ? lead.latestEmail.plainText.trim()
+          : [
+              `Hi ${lead.contact.fullName.split(" ")[0] || "there"},`,
+              "",
+              `Quick follow-up on the note I sent about ${lead.company.name}.`,
+              "Happy to share specifics and next steps if helpful.",
+              "",
+              ...lead.latestEmail.complianceFooter,
+            ].join("\n");
+
+      const composedBody = body.body?.trim() || generatedFollowUpBody;
+
+      if (!composedBody) {
+        return Response.json(
+          { error: "Follow-up body is empty. Add a message before sending." },
+          { status: 400 },
+        );
+      }
+
+      const sent = await sendGmailMessage({
+        to: lead.contact.email,
+        subject,
+        body: composedBody,
+        threadId: headers.threadId,
+        inReplyTo: headers.inReplyTo,
+        references: headers.references,
+      });
+
+      await createReplyRecord({
+        lead,
         subject,
         bodyText: composedBody,
         threadId: sent.threadId,

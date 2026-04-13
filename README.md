@@ -7,7 +7,6 @@ Operator-first MVP for discovering premium local service businesses, auditing we
 - Next.js 16 App Router
 - React 19
 - Tailwind CSS 4
-- Typed local seed data for the MVP workspace
 - Supabase schema scaffold in [supabase/schema.sql](./supabase/schema.sql)
 
 ## What is implemented
@@ -17,16 +16,20 @@ Operator-first MVP for discovering premium local service businesses, auditing we
 - Outreach review panel with subject variants, draft preview, compliance footer, and follow-up schedule
 - Campaign pipeline and activity log
 - Domain health and send guardrail surface
-- Worker status / roadmap surface
-- Live Supabase read path when runtime env is configured, with seeded fallback otherwise
+- Worker status and queue surface
+- Live Supabase read path when runtime env is configured
 - Gmail draft creation route using Google OAuth runtime env
+- Gmail send/reply/follow-up routes with campaign touch tracking
+- Call and gig scheduling routes backed by campaign metadata
 - OpenClaw command endpoint with secret-based auth
-- Supabase seed script for loading the demo dataset into a real project
-- JSON API stubs:
+- JSON API routes:
+  - `/api/bookings`
   - `/api/leads`
   - `/api/campaigns`
   - `/api/domain-health`
   - `/api/gmail/drafts`
+  - `/api/gmail/send`
+  - `/api/gmail/thread`
   - `/api/openclaw/commands`
 
 ## Local run
@@ -42,11 +45,7 @@ Then open `http://localhost:3000`.
 
 1. Set runtime env in `.env.local`
 2. Run the schema against a Supabase project
-3. Seed the project
-
-```bash
-npm run seed:supabase
-```
+3. Insert real companies, contacts, audits, campaigns, and emails in Supabase
 
 ## Required env
 

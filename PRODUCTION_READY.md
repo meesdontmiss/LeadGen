@@ -14,7 +14,7 @@ Your **Luxury Local Lead Engine** is now production-ready! Here's everything tha
 - ✅ Logout functionality with session cleanup
 - ✅ Protected API routes (all except login, logout, unsubscribe)
 - ✅ HTTP-only secure cookies with 7-day expiry
-- ✅ Default password: `openclaw-operator-2026` (**CHANGE THIS!**)
+- ✅ Operator password required from `OPERATOR_PASSWORD` env
 
 **Files Created:**
 - `lib/auth.ts` - Authentication logic
@@ -193,9 +193,8 @@ Your **Luxury Local Lead Engine** is now production-ready! Here's everything tha
 
 Before going live, you MUST:
 
-- [ ] **Change the default operator password**
+- [ ] **Set operator password**
   - Set `OPERATOR_PASSWORD` in `.env.local`
-  - Default: `openclaw-operator-2026`
   
 - [ ] **Set physical address**
   - Update `PHYSICAL_ADDRESS` with real address
@@ -209,10 +208,8 @@ Before going live, you MUST:
   npx supabase db push
   ```
 
-- [ ] **Seed the database**
-  ```bash
-  npm run seed:supabase
-  ```
+- [ ] **Load live records into Supabase**
+  - Insert real rows into `companies`, `contacts`, `site_audits`, `offers`, `campaigns`, and `emails`
 
 - [ ] **Test all features**
   - Login/logout
@@ -268,15 +265,15 @@ npm install
 # 3. Run database migration
 npx supabase db push
 
-# 4. Seed demo data
-npm run seed:supabase
+# 4. Load live data into Supabase
+# Insert real rows into companies, contacts, site_audits, offers, campaigns, and emails
 
 # 5. Start development server
 npm run dev
 
 # 6. Open in browser
 # http://localhost:3000
-# Password: openclaw-operator-2026
+# Password: value of OPERATOR_PASSWORD from your env
 ```
 
 ---
