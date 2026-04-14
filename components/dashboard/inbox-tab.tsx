@@ -224,7 +224,7 @@ export function InboxTab({ leads }: { leads: LeadRecord[] }) {
         }),
       });
 
-      const payload = (await response.json()) as { error?: string };
+      const payload = (await response.json()) as { error?: string; sentFrom?: string };
 
       if (!response.ok) {
         throw new Error(payload.error ?? "Failed to send email.");
@@ -233,7 +233,9 @@ export function InboxTab({ leads }: { leads: LeadRecord[] }) {
       setSendState({
         pending: false,
         error: null,
-        success: "Email sent from Gmail.",
+        success: payload.sentFrom
+          ? `Email sent from Gmail (${payload.sentFrom}).`
+          : "Email sent from Gmail.",
       });
 
       router.refresh();
@@ -270,7 +272,7 @@ export function InboxTab({ leads }: { leads: LeadRecord[] }) {
         }),
       });
 
-      const payload = (await response.json()) as { error?: string };
+      const payload = (await response.json()) as { error?: string; sentFrom?: string };
 
       if (!response.ok) {
         throw new Error(payload.error ?? "Failed to send reply.");
@@ -280,7 +282,9 @@ export function InboxTab({ leads }: { leads: LeadRecord[] }) {
       setSendState({
         pending: false,
         error: null,
-        success: "Reply sent from Gmail.",
+        success: payload.sentFrom
+          ? `Reply sent from Gmail (${payload.sentFrom}).`
+          : "Reply sent from Gmail.",
       });
 
       await handleRefreshThread();

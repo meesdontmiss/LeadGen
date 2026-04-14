@@ -122,7 +122,7 @@ export function FollowUpsTab({ leads }: { leads: LeadRecord[] }) {
           companyId: lead.company.id,
         }),
       });
-      const payload = (await response.json()) as { error?: string };
+      const payload = (await response.json()) as { error?: string; sentFrom?: string };
 
       if (!response.ok) {
         throw new Error(payload.error ?? "Failed to send follow-up.");
@@ -131,7 +131,9 @@ export function FollowUpsTab({ leads }: { leads: LeadRecord[] }) {
       setLeadAction(lead.company.id, {
         pending: false,
         error: null,
-        success: "Follow-up sent successfully.",
+        success: payload.sentFrom
+          ? `Follow-up sent from ${payload.sentFrom}.`
+          : "Follow-up sent successfully.",
       });
       router.refresh();
     } catch (error) {

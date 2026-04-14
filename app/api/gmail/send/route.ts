@@ -110,6 +110,12 @@ export async function POST(request: Request) {
         body: composedBody,
         threadId: lead.latestEmail.gmailThreadId,
       });
+      if (!sent.messageId) {
+        return Response.json(
+          { error: "Gmail did not confirm delivery. Email was not marked as sent." },
+          { status: 502 },
+        );
+      }
 
       await markEmailAsSent({
         emailId: lead.latestEmail.id,
@@ -124,6 +130,7 @@ export async function POST(request: Request) {
         action: body.action,
         companyId: body.companyId,
         sent,
+        sentFrom: sent.mailboxEmail,
       });
     }
 
@@ -161,6 +168,12 @@ export async function POST(request: Request) {
         inReplyTo: headers.inReplyTo,
         references: headers.references,
       });
+      if (!sent.messageId) {
+        return Response.json(
+          { error: "Gmail did not confirm delivery. Reply was not marked as sent." },
+          { status: 502 },
+        );
+      }
 
       await createReplyRecord({
         lead,
@@ -175,6 +188,7 @@ export async function POST(request: Request) {
         action: body.action,
         companyId: body.companyId,
         sent,
+        sentFrom: sent.mailboxEmail,
       });
     }
 
@@ -201,6 +215,12 @@ export async function POST(request: Request) {
       inReplyTo: headers.inReplyTo,
       references: headers.references,
     });
+    if (!sent.messageId) {
+      return Response.json(
+        { error: "Gmail did not confirm delivery. Reply was not marked as sent." },
+        { status: 502 },
+      );
+    }
 
     await createReplyRecord({
       lead,
@@ -215,6 +235,7 @@ export async function POST(request: Request) {
       action: body.action,
       companyId: body.companyId,
       sent,
+      sentFrom: sent.mailboxEmail,
     });
   } catch (error) {
     const message =

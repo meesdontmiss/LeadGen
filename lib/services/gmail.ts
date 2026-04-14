@@ -281,9 +281,26 @@ export async function sendGmailMessage({
       },
     });
 
+    const messageId = response.data.id ?? null;
+    if (!messageId) {
+      throw new Error("Gmail did not return a message id for this send request.");
+    }
+
+    const sentMessage = await gmail.users.messages.get({
+      userId: "me",
+      id: messageId,
+      format: "minimal",
+    });
+    const labelIds = sentMessage.data.labelIds ?? [];
+
+    if (!labelIds.includes("SENT")) {
+      throw new Error("Gmail send could not be verified in the Sent mailbox.");
+    }
+
     return {
-      messageId: response.data.id ?? null,
+      messageId,
       threadId: response.data.threadId ?? threadId ?? null,
+      mailboxEmail,
     };
   } catch (error) {
     console.error("[Gmail] Send failed:", error);

@@ -99,9 +99,14 @@ export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRe
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "send_draft", companyId: selectedLead.company.id }),
       });
-      const data = await res.json();
+      const data = (await res.json()) as { error?: string; sentFrom?: string };
       if (res.ok) {
-        setActionResult({ ok: true, message: `Email sent to ${selectedLead.contact.email}` });
+        setActionResult({
+          ok: true,
+          message: data.sentFrom
+            ? `Email sent to ${selectedLead.contact.email} via ${data.sentFrom}`
+            : `Email sent to ${selectedLead.contact.email}`,
+        });
         router.refresh();
       } else {
         setActionResult({ ok: false, message: data.error || "Failed to send" });
