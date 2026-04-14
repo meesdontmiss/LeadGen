@@ -78,8 +78,24 @@ const DEFAULT_CITY = "Los Angeles";
 const DEFAULT_STATE = "CA";
 const DISCOVERY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const WEBSITE_ENRICHMENT_LIMIT_PER_RUN = 24;
-const WEBSITE_ENRICHMENT_PAGE_LIMIT = 4;
+const WEBSITE_ENRICHMENT_PAGE_LIMIT = 8;
 const WEBSITE_REQUEST_TIMEOUT_MS = 4000;
+const WEBSITE_FALLBACK_PATHS = [
+  "/contact",
+  "/contact-us",
+  "/about",
+  "/about-us",
+  "/team",
+  "/support",
+  "/book",
+  "/appointments",
+  "/careers",
+  "/jobs",
+  "/join-us",
+  "/employment",
+];
+const CRAWL_PATH_PATTERN =
+  /\/(contact|about|team|support|book|appointment|career|careers|jobs?|employment|join-us)\b/i;
 
 const DISCOVERY_PRESETS: DiscoveryPreset[] = [
   {
@@ -194,7 +210,40 @@ function choosePhone(tags: Record<string, string>) {
 function normalizeEmail(value: string | null) {
   if (!value) return null;
   const trimmed = value.trim().toLowerCase();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) ? trimmed : null;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return null;
+
+  const [localPart = "", domainPart = ""] = trimmed.split("@");
+  if (!localPart || !domainPart) return null;
+
+  const tld = domainPart.split(".").pop() ?? "";
+  const blockedTlds = new Set([
+    "gif",
+    "png",
+    "jpg",
+    "jpeg",
+    "webp",
+    "svg",
+    "css",
+    "js",
+    "ico",
+    "woff",
+    "woff2",
+    "ttf",
+    "otf",
+    "eot",
+    "map",
+    "pdf",
+    "xml",
+    "json",
+  ]);
+  if (blockedTlds.has(tld)) return null;
+
+  const blockedLocals = new Set(["you", "yourname", "name", "example", "test", "sample"]);
+  if (blockedLocals.has(localPart)) return null;
+  if (/^(image|img|icon|logo|ajax-loader)([-_.].*)?$/i.test(localPart)) return null;
+  if (/^(example|yourdomain|domain)\./i.test(domainPart)) return null;
+
+  return trimmed;
 }
 
 function stripHtml(raw: string) {
@@ -239,19 +288,39 @@ function hasJobKeywords(text: string) {
 
 function extractCandidateLinks(html: string, baseUrl: string) {
   const links: string[] = [];
+  const mailtoEmails = new Set<string>();
   const regex = /href=["']([^"']+)["']/gi;
   let match: RegExpExecArray | null = regex.exec(html);
+
+  const base = new URL(baseUrl);
+  const baseOrigin = base.origin;
+
   while (match) {
     const href = match[1];
     try {
+      if (/^mailto:/i.test(href)) {
+        const candidate = decodeURIComponent(href.replace(/^mailto:/i, "").split("?")[0] ?? "");
+        const normalized = normalizeEmail(candidate);
+        if (normalized) {
+          mailtoEmails.add(normalized);
+        }
+        match = regex.exec(html);
+        continue;
+      }
+
       const absolute = new URL(href, baseUrl).toString();
-      if (/^https?:/i.test(absolute)) links.push(absolute);
+      if (/^https?:/i.test(absolute) && new URL(absolute).origin === baseOrigin) {
+        links.push(absolute);
+      }
     } catch {
       // ignore invalid href
     }
     match = regex.exec(html);
   }
-  return links;
+  return {
+    links,
+    mailtoEmails: [...mailtoEmails],
+  };
 }
 
 async function fetchHtml(url: string) {
@@ -295,8 +364,7 @@ async function enrichWebsiteSignals({
   const emails = new Set<string>();
   const jobListingUrls = new Set<string>();
 
-  const fallbackPaths = ["/careers", "/jobs", "/join-us", "/employment"];
-  for (const path of fallbackPaths) {
+  for (const path of WEBSITE_FALLBACK_PATHS) {
     try {
       queue.push(new URL(path, website).toString());
     } catch {
@@ -325,12 +393,16 @@ async function enrichWebsiteSignals({
       jobListingUrls.add(finalUrl);
     }
 
-    const links = extractCandidateLinks(html, finalUrl).filter((link) =>
-      /\/(career|careers|jobs?|employment|join-us)\b/i.test(link) ||
-      /[?&](job|career)/i.test(link),
+    const { links, mailtoEmails } = extractCandidateLinks(html, finalUrl);
+    for (const email of mailtoEmails) {
+      emails.add(email);
+    }
+
+    const crawlLinks = links.filter((link) =>
+      CRAWL_PATH_PATTERN.test(link) || /[?&](job|career|contact)/i.test(link),
     );
 
-    for (const link of links) {
+    for (const link of crawlLinks) {
       if (!visited.has(link) && !queue.includes(link)) queue.push(link);
     }
   }
@@ -1183,4 +1255,179 @@ export async function runLosAngelesDailyDiscoveryScan({
 
     throw error;
   }
+}
+
+type EmailBackfillStats = {
+  scanned: number;
+  updated: number;
+  skippedHasEmail: number;
+  skippedNoWebsite: number;
+  skippedNoPrimaryContact: number;
+  noEmailFound: number;
+  failures: number;
+  details: Array<{
+    companyId: string;
+    companyName: string;
+    email: string;
+  }>;
+};
+
+export async function runMissingEmailBackfill({
+  limit = 200,
+}: {
+  limit?: number;
+} = {}) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    throw new Error("Supabase server env is missing. Email backfill cannot run.");
+  }
+
+  const stats: EmailBackfillStats = {
+    scanned: 0,
+    updated: 0,
+    skippedHasEmail: 0,
+    skippedNoWebsite: 0,
+    skippedNoPrimaryContact: 0,
+    noEmailFound: 0,
+    failures: 0,
+    details: [],
+  };
+
+  const [companiesResult, contactsResult] = await Promise.all([
+    supabase
+      .from("companies")
+      .select("id,name,website_url,domain,phone_normalized")
+      .order("created_at", { ascending: true })
+      .limit(Math.max(1, Math.min(limit, 1000))),
+    supabase
+      .from("contacts")
+      .select("id,company_id,email,is_primary,source,confidence")
+      .eq("is_primary", true),
+  ]);
+
+  if (companiesResult.error) {
+    throw new Error(`Failed loading companies for email backfill: ${companiesResult.error.message}`);
+  }
+
+  if (contactsResult.error) {
+    throw new Error(`Failed loading contacts for email backfill: ${contactsResult.error.message}`);
+  }
+
+  const primaryContactByCompany = new Map<
+    string,
+    {
+      id: string;
+      email: string | null;
+      source: string | null;
+      confidence: number | null;
+    }
+  >();
+
+  for (const row of contactsResult.data ?? []) {
+    const companyId = typeof row.company_id === "string" ? row.company_id : null;
+    if (!companyId || primaryContactByCompany.has(companyId)) continue;
+    primaryContactByCompany.set(companyId, {
+      id: String(row.id),
+      email: typeof row.email === "string" ? row.email : null,
+      source: typeof row.source === "string" ? row.source : null,
+      confidence:
+        typeof row.confidence === "number" && Number.isFinite(row.confidence)
+          ? row.confidence
+          : null,
+    });
+  }
+
+  for (const company of companiesResult.data ?? []) {
+    const companyId = String(company.id);
+    const companyName = typeof company.name === "string" ? company.name : companyId;
+    const website = normalizeWebsiteUrl(
+      typeof company.website_url === "string" ? company.website_url : null,
+    );
+    const domain =
+      typeof company.domain === "string" && company.domain.trim().length > 0
+        ? company.domain.trim().toLowerCase()
+        : extractDomain(website);
+    const contact = primaryContactByCompany.get(companyId);
+
+    if (!contact) {
+      stats.skippedNoPrimaryContact += 1;
+      continue;
+    }
+
+    if (contact.email && contact.email.trim().length > 0) {
+      stats.skippedHasEmail += 1;
+      continue;
+    }
+
+    if (!website) {
+      stats.skippedNoWebsite += 1;
+      continue;
+    }
+
+    stats.scanned += 1;
+
+    try {
+      const enrichment = await enrichWebsiteSignals({
+        website,
+        domain,
+      });
+
+      if (!enrichment.bestEmail) {
+        stats.noEmailFound += 1;
+        continue;
+      }
+
+      const nextSource = contact.source
+        ? `${contact.source},website_backfill`
+        : "website_backfill";
+      const nextConfidence = Math.max(70, contact.confidence ?? 0);
+      const nextContactability = clampScore(
+        35 +
+          (website ? 25 : 0) +
+          (typeof company.phone_normalized === "string" && company.phone_normalized.length > 0
+            ? 25
+            : 0) +
+          15,
+      );
+
+      const [{ error: contactUpdateError }, { error: companyUpdateError }] = await Promise.all([
+        supabase
+          .from("contacts")
+          .update({
+            email: enrichment.bestEmail,
+            source: nextSource,
+            confidence: nextConfidence,
+          })
+          .eq("id", contact.id),
+        supabase
+          .from("companies")
+          .update({
+            contactability: nextContactability,
+          })
+          .eq("id", companyId),
+      ]);
+
+      if (contactUpdateError) {
+        throw new Error(`Contact update failed: ${contactUpdateError.message}`);
+      }
+
+      if (companyUpdateError) {
+        throw new Error(`Company update failed: ${companyUpdateError.message}`);
+      }
+
+      stats.updated += 1;
+      stats.details.push({
+        companyId,
+        companyName,
+        email: enrichment.bestEmail,
+      });
+    } catch (error) {
+      stats.failures += 1;
+      console.error(
+        `[Email backfill] ${companyName}: ${error instanceof Error ? error.message : "Unknown failure"}`,
+      );
+    }
+  }
+
+  return stats;
 }
