@@ -1,10 +1,10 @@
-import { z } from "zod";
+import { ZodError, z } from "zod";
 
 import { getSupabaseAdmin } from "@/lib/services/supabase-admin";
 
 const bulkQueueSchema = z.object({
   action: z.literal("auto_approve_selected"),
-  companyIds: z.array(z.string().uuid()).min(1, "Select at least one lead."),
+  companyIds: z.array(z.string().trim().min(1)).min(1, "Select at least one lead."),
 });
 
 export async function POST(request: Request) {
@@ -116,6 +116,12 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("[API /leads/queue] Error:", error);
+    if (error instanceof ZodError) {
+      return Response.json(
+        { error: "Invalid bulk selection payload." },
+        { status: 400 },
+      );
+    }
     const message =
       error instanceof Error ? error.message : "Failed to auto-approve selected leads";
     return Response.json({ error: message }, { status: 500 });

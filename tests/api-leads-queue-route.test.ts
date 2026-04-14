@@ -14,7 +14,7 @@ describe("API leads bulk queue route", () => {
     vi.clearAllMocks();
   });
 
-  it("returns 500 when no lead IDs are selected", async () => {
+  it("returns 400 when no lead IDs are selected", async () => {
     const { POST } = await import("../app/api/leads/queue/route");
 
     const response = await POST(
@@ -30,11 +30,11 @@ describe("API leads bulk queue route", () => {
 
     const payload = (await response.json()) as { error?: string };
 
-    expect(response.status).toBe(500);
-    expect(payload.error).toContain("Select at least one lead.");
+    expect(response.status).toBe(400);
+    expect(payload.error).toBe("Invalid bulk selection payload.");
   });
 
-  it("returns 500 when Supabase is not configured", async () => {
+  it("accepts non-UUID IDs and returns 500 when Supabase is not configured", async () => {
     mocks.getSupabaseAdmin.mockReturnValue(null);
     const { POST } = await import("../app/api/leads/queue/route");
 
@@ -44,7 +44,7 @@ describe("API leads bulk queue route", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "auto_approve_selected",
-          companyIds: ["11111111-1111-4111-8111-111111111111"],
+          companyIds: ["company_1"],
         }),
       }),
     );
@@ -56,9 +56,9 @@ describe("API leads bulk queue route", () => {
   });
 
   it("auto-approves only latest draft emails for selected leads", async () => {
-    const companyA = "11111111-1111-4111-8111-111111111111";
-    const companyB = "22222222-2222-4222-8222-222222222222";
-    const companyC = "33333333-3333-4333-8333-333333333333";
+    const companyA = "company-a";
+    const companyB = "company-b";
+    const companyC = "company-c";
 
     const updateCompaniesIn = vi.fn().mockResolvedValue({ error: null });
     const updateCompanies = vi.fn().mockReturnValue({ in: updateCompaniesIn });
