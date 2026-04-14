@@ -243,6 +243,47 @@ function toLeadStatus(value: string | null | undefined): Company["status"] {
   }
 }
 
+function reconcileLeadStatus({
+  companyStatus,
+  campaignStatus,
+  emailStatus,
+}: {
+  companyStatus: Company["status"];
+  campaignStatus: Campaign["status"];
+  emailStatus: EmailDraft["status"];
+}): Company["status"] {
+  if (companyStatus === "do_not_contact") {
+    return "do_not_contact";
+  }
+
+  if (campaignStatus === "won" || campaignStatus === "lost") {
+    return campaignStatus;
+  }
+
+  if (
+    campaignStatus === "booked" ||
+    campaignStatus === "interested" ||
+    campaignStatus === "replied" ||
+    campaignStatus === "sent"
+  ) {
+    return campaignStatus;
+  }
+
+  if (emailStatus === "replied") {
+    return "replied";
+  }
+
+  if (emailStatus === "sent") {
+    return "sent";
+  }
+
+  if (emailStatus === "approved") {
+    return "draft_ready";
+  }
+
+  return companyStatus;
+}
+
 function mapTone(value: string): ActivityItem["tone"] {
   if (/reply|book|won|sent/i.test(value)) return "positive";
   if (/warning|bounce|complaint|blocked|error/i.test(value)) return "warning";
@@ -587,6 +628,12 @@ export async function getDashboardData(): Promise<DashboardData> {
           return null;
         }
 
+        const companyStatus = reconcileLeadStatus({
+          companyStatus: toLeadStatus(String(row.lead_status ?? "new")),
+          campaignStatus: campaign.status,
+          emailStatus: latestEmail.status,
+        });
+
         const company: Company = {
           id: companyId,
           name: toStringOrEmpty(row.name),
@@ -600,7 +647,7 @@ export async function getDashboardData(): Promise<DashboardData> {
           ownerName: toStringOrEmpty(row.owner_name),
           premiumFit: Number(row.premium_fit ?? 0),
           contactability: Number(row.contactability ?? 0),
-          status: toLeadStatus(String(row.lead_status ?? "new")),
+          status: companyStatus,
           source: toStringOrEmpty(row.source),
           discoveredAt: toStringOrEmpty(row.created_at),
           notes: toStringOrEmpty(row.notes),
@@ -783,6 +830,7 @@ export async function getLeadRecord(companyId: string) {
     };
 
     const metadata = parseCampaignMetadata(campaign.metadata);
+    const campaignStatus = toLeadStatus(String(campaign.status ?? "new"));
 
     const latestEmail: EmailDraft = {
       id: String(email.id),
@@ -802,8 +850,17 @@ export async function getLeadRecord(companyId: string) {
       complianceChecks: [],
     };
 
+    const companyStatus = reconcileLeadStatus({
+      companyStatus: toLeadStatus(String(company.lead_status ?? "new")),
+      campaignStatus,
+      emailStatus: latestEmail.status,
+    });
+
     return {
-      company: companyObj,
+      company: {
+        ...companyObj,
+        status: companyStatus,
+      },
       contact: {
         id: String(contact.id),
         companyId: String(contact.company_id ?? ""),
@@ -867,7 +924,7 @@ export async function getLeadRecord(companyId: string) {
       campaign: {
         id: String(campaign.id),
         companyId: String(campaign.company_id ?? ""),
-        status: toLeadStatus(String(campaign.status ?? "new")),
+        status: campaignStatus,
         offerType:
           campaign.offer_type === "free_prototype_site" ||
           campaign.offer_type === "free_video_photo_concept" ||
