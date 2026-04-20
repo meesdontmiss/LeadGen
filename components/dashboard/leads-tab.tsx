@@ -12,6 +12,7 @@ export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRe
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(initialStatusFilter);
+  const [sectorFilter, setSectorFilter] = useState<"all" | "media" | "film">("all");
   const [selectedLead, setSelectedLead] = useState<LeadRecord | null>(null);
   const [modalView, setModalView] = useState<ModalView>("preview");
   const [editedSubject, setEditedSubject] = useState("");
@@ -38,7 +39,12 @@ export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRe
     const matchesStatus =
       statusFilter === "all" || lead.company.status === statusFilter;
 
-    return matchesSearch && matchesStatus;
+    const matchesSector = 
+      sectorFilter === "all" ||
+      (sectorFilter === "film" && lead.company.vertical === "Film & TV Production") ||
+      (sectorFilter === "media" && lead.company.vertical !== "Film & TV Production");
+
+    return matchesSearch && matchesStatus && matchesSector;
   });
 
   const statuses = Array.from(new Set(leads.map((l) => l.company.status)));
@@ -65,15 +71,17 @@ export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRe
     setActionBusy(null);
   }, []);
 
-  async function handleCreateDraft() {
-    if (!selectedLead) return;
+  async function handleCreateDraft(explicitCompanyId?: string) {
+    const companyId = explicitCompanyId || selectedLead?.company.id;
+    if (!companyId) return;
+    
     setActionBusy("draft");
     setActionResult(null);
     try {
       const res = await fetch("/api/gmail/drafts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId: selectedLead.company.id }),
+        body: JSON.stringify({ companyId }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -182,9 +190,32 @@ export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRe
   }
 
   return (
-    <div className="rounded-2xl border border-stone-200 bg-white shadow-sm">
-      {/* Filters */}
-      <div className="border-b border-stone-200 p-5">
+    <div className="flex flex-col gap-4">
+      {/* Sector Tabs */}
+      <div className="flex gap-1 rounded-xl bg-stone-100 p-1 w-fit border border-stone-200">
+        <button
+          onClick={() => setSectorFilter("all")}
+          className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${sectorFilter === "all" ? "bg-white text-stone-950 shadow-sm" : "text-stone-600 hover:text-stone-900"}`}
+        >
+          All Leads
+        </button>
+        <button
+          onClick={() => setSectorFilter("media")}
+          className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${sectorFilter === "media" ? "bg-white text-stone-950 shadow-sm" : "text-stone-600 hover:text-stone-900"}`}
+        >
+          Media & Web Design
+        </button>
+        <button
+          onClick={() => setSectorFilter("film")}
+          className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${sectorFilter === "film" ? "bg-white text-stone-950 shadow-sm" : "text-stone-600 hover:text-stone-900"}`}
+        >
+          Film & TV Production
+        </button>
+      </div>
+
+      <div className="rounded-2xl border border-stone-200 bg-white shadow-sm">
+        {/* Filters */}
+        <div className="border-b border-stone-200 p-5">
         <div className="flex flex-wrap gap-3">
           <div className="relative flex-1 min-w-[280px]">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
@@ -349,12 +380,28 @@ export function LeadsTab({ leads, initialStatusFilter = "all" }: { leads: LeadRe
                   </div>
                 </td>
                 <td className="px-5 py-4 text-right">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); openLeadPanel(lead); }}
-                    className="rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-stone-800"
-                  >
-                    Review Draft
-                  </button>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        handleCreateDraft(lead.company.id);
+                      }}
+                      title="Quick Save to Gmail Drafts"
+                      className="rounded-lg border border-stone-200 p-1.5 text-stone-600 transition-colors hover:bg-stone-50 hover:text-stone-900"
+                    >
+                      {actionBusy === "draft" && selectedLead?.company.id === lead.company.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Mail className="h-4 w-4" />
+                      )}
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); openLeadPanel(lead); }}
+                      className="rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-stone-800"
+                    >
+                      Review
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

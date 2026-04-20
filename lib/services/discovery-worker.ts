@@ -38,6 +38,7 @@ type CandidateLead = {
   phone: string | null;
   phoneNormalized: string | null;
   email: string | null;
+  owner_name: string | null;
   lat: number | null;
   lon: number | null;
   premiumFit: number;
@@ -93,9 +94,12 @@ const WEBSITE_FALLBACK_PATHS = [
   "/jobs",
   "/join-us",
   "/employment",
+  "/leadership",
+  "/management",
+  "/our-team",
 ];
 const CRAWL_PATH_PATTERN =
-  /\/(contact|about|team|support|book|appointment|career|careers|jobs?|employment|join-us)\b/i;
+  /\/(contact|about|team|support|book|appointment|career|careers|jobs?|employment|join-us|leadership|management|our-team)\b/i;
 
 const DISCOVERY_PRESETS: DiscoveryPreset[] = [
   {
@@ -133,7 +137,41 @@ const DISCOVERY_PRESETS: DiscoveryPreset[] = [
     premiumBase: 76,
     pipelineValue: 9500,
   },
+  {
+    key: "film_tv_production",
+    label: "Film & TV Production",
+    overpassTag: { key: "office", value: "company" }, // General company, will filter by keywords
+    premiumBase: 85,
+    pipelineValue: 25000,
+  },
 ];
+
+const TARGET_ROLES = [
+  { pattern: /\b(marketing|growth|outreach|sales|partnerships?)\s*(manager|director|vp|head|lead)\b/i, title: "Marketing Lead" },
+  { pattern: /\b(creative|content|production|film|media|studio)\s*(director|producer|executive|vp|head)\b/i, title: "Creative Executive" },
+  { pattern: /\b(ceo|founder|owner|principal|managing partner)\b/i, title: "Business Owner" },
+];
+
+function findContactDetails(html: string, text: string) {
+  const found: Array<{ name: string | null; email: string | null; title: string }> = [];
+  
+  // Try to find names near role keywords
+  for (const role of TARGET_ROLES) {
+    const match = text.match(role.pattern);
+    if (match) {
+      // Look for capitalized names in the vicinity (crude but often works for team pages)
+      const context = text.slice(Math.max(0, (match.index ?? 0) - 100), (match.index ?? 0) + 100);
+      const nameMatch = context.match(/([A-Z][a-z]+ [A-Z][a-z]+)/);
+      
+      found.push({
+        name: nameMatch ? nameMatch[1] : null,
+        email: null, // Will be filled by general email extractor
+        title: role.title,
+      });
+    }
+  }
+  return found;
+}
 
 function clampScore(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -363,6 +401,7 @@ async function enrichWebsiteSignals({
   const visited = new Set<string>();
   const emails = new Set<string>();
   const jobListingUrls = new Set<string>();
+  const potentialContacts: Array<{ name: string | null; email: string | null; title: string }> = [];
 
   for (const path of WEBSITE_FALLBACK_PATHS) {
     try {
@@ -386,6 +425,10 @@ async function enrichWebsiteSignals({
       emails.add(email);
     }
 
+    // Try to find specific roles
+    const contactsOnPage = findContactDetails(html, text);
+    potentialContacts.push(...contactsOnPage);
+
     const looksLikeJobPage =
       hasJobKeywords(text) || /\/(career|careers|jobs?|employment|join-us)\b/i.test(finalUrl);
 
@@ -408,11 +451,15 @@ async function enrichWebsiteSignals({
   }
 
   const discoveredEmails = [...emails];
+  // Dedupe potential contacts and pick the best one
+  const bestContact = potentialContacts.find(c => c.name) || potentialContacts[0] || null;
+
   return {
     jobListingsDetected: jobListingUrls.size > 0,
     jobListingUrls: [...jobListingUrls].slice(0, 8),
     discoveredEmails,
     bestEmail: pickBestEmail(discoveredEmails, domain),
+    bestContact,
   };
 }
 
@@ -668,6 +715,12 @@ out tags center ${limit};
   return payload.elements ?? [];
 }
 
+function isMediaCompany(name: string, tags: Record<string, string>) {
+  const mediaKeywords = /\b(film|studio|production|media|cinema|entertainment|video|creative|advertising|digital|agency)\b/i;
+  const description = tags.description || tags.about || "";
+  return mediaKeywords.test(name) || mediaKeywords.test(description) || tags.office === "studio";
+}
+
 function toCandidates({
   elements,
   preset,
@@ -681,6 +734,11 @@ function toCandidates({
     const tags = element.tags ?? {};
     const name = tags.name?.trim();
     if (!name) continue;
+
+    // Special filtering for film/tv production if using the generic company preset
+    if (preset.key === "film_tv_production" && !isMediaCompany(name, tags)) {
+      continue;
+    }
 
     const website = normalizeWebsiteUrl(chooseWebsite(tags));
     const domain = extractDomain(website);
@@ -722,6 +780,7 @@ function toCandidates({
       phone,
       phoneNormalized,
       email,
+      owner_name: null,
       lat,
       lon,
       premiumFit,
@@ -736,7 +795,7 @@ function toCandidates({
       jobListingsDetected: false,
       jobListingUrls: [],
       discoveredEmails: email ? [email] : [],
-      note: "Discovered by OpenClaw daily Los Angeles scan.",
+      note: `Discovered by OpenClaw daily Los Angeles scan. preset=${preset.key}`,
     });
   }
 
@@ -955,6 +1014,13 @@ export async function runLosAngelesDailyDiscoveryScan({
             stats.emailsDiscovered += enrichment.discoveredEmails.length;
           }
 
+          if (enrichment.bestContact) {
+            if (enrichment.bestContact.name) {
+              enrichedCandidate.owner_name = enrichment.bestContact.name;
+            }
+            enrichedCandidate.note += ` title=${enrichment.bestContact.title.replace(/\s+/g, "_")}`;
+          }
+
           enrichedCandidate.jobListingsDetected = enrichment.jobListingsDetected;
           enrichedCandidate.jobListingUrls = enrichment.jobListingUrls;
           enrichedCandidate.discoveredEmails = [
@@ -1011,7 +1077,7 @@ export async function runLosAngelesDailyDiscoveryScan({
             neighborhood: enrichedCandidate.neighborhood,
             city: enrichedCandidate.city,
             state: enrichedCandidate.state,
-            owner_name: null,
+            owner_name: enrichedCandidate.owner_name,
             premium_fit: enrichedCandidate.premiumFit,
             contactability: enrichedCandidate.contactability,
             lead_status: leadStatus,
@@ -1040,8 +1106,8 @@ export async function runLosAngelesDailyDiscoveryScan({
           .from("contacts")
           .insert({
             company_id: companyId,
-            full_name: enrichedCandidate.name,
-            title: "Business Owner",
+            full_name: enrichmentRuns > 0 && enrichedCandidate.owner_name ? enrichedCandidate.owner_name : enrichedCandidate.name,
+            title: enrichedCandidate.note.includes("title=") ? enrichedCandidate.note.split("title=")[1].split(" ")[0].replace(/_/g, " ") : "Business Owner",
             email: enrichedCandidate.email,
             phone: enrichedCandidate.phone,
             source: "openclaw_daily_scan",
